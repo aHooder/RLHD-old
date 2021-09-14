@@ -51,7 +51,10 @@ public class ExportLightsToJson
 				l.duration,
 				l.range,
 				l.fadeInDuration,
-				null, null, null))
+				null,
+				null,
+				null,
+				null))
 			.collect(Collectors.toList()));
 
 		uniqueLights.addAll(Arrays.stream(NpcLight.values())
@@ -67,6 +70,7 @@ public class ExportLightsToJson
 				l.getRange(),
 				null,
 				toSet(l.getId()),
+				null,
 				null,
 				null))
 			.collect(Collectors.toList()));
@@ -85,6 +89,7 @@ public class ExportLightsToJson
 				null,
 				null,
 				toSet(l.getId()),
+				null,
 				null))
 			.collect(Collectors.toList()));
 
@@ -102,7 +107,29 @@ public class ExportLightsToJson
 				l.getFadeInDuration(),
 				null,
 				null,
-				toSet(l.getId())))
+				toSet(l.getId()),
+				null))
+			.collect(Collectors.toList()));
+
+		uniqueLights.addAll(Arrays.stream(EquipmentLight.values())
+			.map(l -> new Light(
+				l.name(),
+				null, null, null, l.getHeight(),
+				l.getAlignment(),
+				l.getSize(),
+				l.getStrength(),
+				l.getColor(),
+				l.getLightType(),
+				l.getDuration(),
+				l.getRange(),
+				null,
+				null,
+				null,
+				null,
+				Arrays.stream(l.getId())
+					.map(itemId -> itemId + 512) // item ID -> equipment ID
+					.boxed()
+					.collect(Collectors.toCollection(HashSet::new))))
 			.collect(Collectors.toList()));
 
 		// Write combined lights.json

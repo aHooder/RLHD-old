@@ -225,7 +225,7 @@ public class LightConfigParser
 							lights.add(new Light(description,
 								x, y, plane, height, alignment, radius,
 								strength, color, type, duration, range, 0,
-								null, null, null));
+								null, null, null, null));
 							break;
 					}
 				}

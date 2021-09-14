@@ -21,7 +21,8 @@ public class LightConfig
 		ArrayList<SceneLight> worldLights,
 		ListMultimap<Integer, Light> npcLights,
 		ListMultimap<Integer, Light> objectLights,
-		ListMultimap<Integer, Light> projectileLights
+		ListMultimap<Integer, Light> projectileLights,
+		ListMultimap<Integer, Light> equipmentLights
 	)
 	{
 		String filename = "lights.json";
@@ -31,7 +32,7 @@ public class LightConfig
 			throw new RuntimeException("Missing resource: " + Paths.get(
 				LightConfig.class.getPackage().getName().replace(".", "/"), filename));
 		}
-		load(is, worldLights, npcLights, objectLights, projectileLights);
+		load(is, worldLights, npcLights, objectLights, projectileLights, equipmentLights);
 	}
 
 	public static void load(
@@ -39,17 +40,18 @@ public class LightConfig
 		ArrayList<SceneLight> worldLights,
 		ListMultimap<Integer, Light> npcLights,
 		ListMultimap<Integer, Light> objectLights,
-		ListMultimap<Integer, Light> projectileLights
+		ListMultimap<Integer, Light> projectileLights,
+		ListMultimap<Integer, Light> equipmentLights
 	)
 	{
 		try
 		{
-			load(new FileInputStream(jsonFile), worldLights, npcLights, objectLights, projectileLights);
+			load(new FileInputStream(jsonFile), worldLights, npcLights, objectLights, projectileLights, equipmentLights);
 		}
 		catch (IOException ex)
 		{
 			log.error("Lights config file not found: " + jsonFile.toPath() + ". Falling back to default config...", ex);
-			load(worldLights, npcLights, objectLights, projectileLights);
+			load(worldLights, npcLights, objectLights, projectileLights, equipmentLights);
 		}
 	}
 
@@ -58,7 +60,8 @@ public class LightConfig
 		ArrayList<SceneLight> worldLights,
 		ListMultimap<Integer, Light> npcLights,
 		ListMultimap<Integer, Light> objectLights,
-		ListMultimap<Integer, Light> projectileLights
+		ListMultimap<Integer, Light> projectileLights,
+		ListMultimap<Integer, Light> equipmentLights
 	)
 	{
 		try
@@ -74,6 +77,7 @@ public class LightConfig
 				l.npcIds.forEach(id -> npcLights.put(id, l));
 				l.objectIds.forEach(id -> objectLights.put(id, l));
 				l.projectileIds.forEach(id -> projectileLights.put(id, l));
+				l.equipmentIds.forEach(id -> equipmentLights.put(id, l));
 			}
 
 			log.info("Loaded {} lights", lights.length);

@@ -13,10 +13,12 @@ public class LightConfigTest {
     private static final ListMultimap<Integer, Light> NPC_LIGHTS = ArrayListMultimap.create();
     private static final ListMultimap<Integer, Light> OBJECT_LIGHTS = ArrayListMultimap.create();
     private static final ListMultimap<Integer, Light> PROJECTILE_LIGHTS = ArrayListMultimap.create();
+    private static final ListMultimap<Integer, Light> EQUIPMENT_LIGHTS = ArrayListMultimap.create();
 
     @Test
     public void testLoad() {
-        LightConfig.load(Thread.currentThread().getContextClassLoader().getResourceAsStream("lighting/lights.json"), WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS);
+        LightConfig.load(LightConfigTest.class.getResourceAsStream("rs117/hd/lighting/lights.json"),
+			WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS, EQUIPMENT_LIGHTS);
 
         // can we get the same light for both of its raw IDs?
         Light spitRoastLight = OBJECT_LIGHTS.get(5608).get(0);

@@ -8,10 +8,13 @@ import com.google.gson.stream.JsonWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ItemID;
 import net.runelite.api.NpcID;
 import net.runelite.api.ObjectID;
 
@@ -37,6 +40,8 @@ public class Light
 	public HashSet<Integer> objectIds;
 	@JsonAdapter(ProjectileIDAdapter.class)
 	public HashSet<Integer> projectileIds;
+	@JsonAdapter(EquipmentIDAdapter.class)
+	public HashSet<Integer> equipmentIds;
 
 	// Called by GSON when parsing JSON
 	public Light()
@@ -44,9 +49,28 @@ public class Light
 		npcIds = new HashSet<>();
 		objectIds = new HashSet<>();
 		projectileIds = new HashSet<>();
+		equipmentIds = new HashSet<>();
 	}
 
-	public Light(String description, Integer worldX, Integer worldY, Integer plane, Integer height, Alignment alignment, int radius, float strength, float[] color, LightType type, float duration, float range, Integer fadeInDuration, HashSet<Integer> npcIds, HashSet<Integer> objectIds, HashSet<Integer> projectileIds)
+	public Light(
+		String description,
+		Integer worldX,
+		Integer worldY,
+		Integer plane,
+		Integer height,
+		Alignment alignment,
+		int radius,
+		float strength,
+		float[] color,
+		LightType type,
+		float duration,
+		float range,
+		Integer fadeInDuration,
+		HashSet<Integer> npcIds,
+		HashSet<Integer> objectIds,
+		HashSet<Integer> projectileIds,
+		HashSet<Integer> equipmentIds
+	)
 	{
 		this.description = description;
 		this.worldX = worldX;
@@ -64,6 +88,7 @@ public class Light
 		this.npcIds = npcIds == null ? new HashSet<>() : npcIds;
 		this.objectIds = objectIds == null ? new HashSet<>() : objectIds;
 		this.projectileIds = projectileIds == null ? new HashSet<>() : projectileIds;
+		this.equipmentIds = equipmentIds == null ? new HashSet<>() : equipmentIds;
 	}
 
 	private static HashSet<Integer> parseIDArray(JsonReader in, @Nullable Class<?> idContainer) throws IOException
@@ -239,6 +264,35 @@ public class Light
 		}
 	}
 
+	public static class EquipmentIDAdapter extends TypeAdapter<HashSet<Integer>>
+	{
+		private HashSet<Integer> equipmentIdsToItemIds(HashSet<Integer> equipmentIds)
+		{
+			return equipmentIds.stream()
+				.map(i -> i - 512)
+				.collect(Collectors.toCollection(HashSet::new));
+		}
+
+		private HashSet<Integer> itemIdsToEquipmentIds(HashSet<Integer> itemIds)
+		{
+			return itemIds.stream()
+				.map(i -> i + 512)
+				.collect(Collectors.toCollection(HashSet::new));
+		}
+
+		@Override
+		public void write(JsonWriter out, HashSet<Integer> equipmentIds) throws IOException
+		{
+			writeIDArray(out, equipmentIdsToItemIds(equipmentIds), ItemID.class);
+		}
+
+		@Override
+		public HashSet<Integer> read(JsonReader in) throws IOException
+		{
+			return itemIdsToEquipmentIds(parseIDArray(in, ItemID.class));
+		}
+	}
+
 	@Override
 	public boolean equals(Object obj)
 	{
@@ -263,7 +317,8 @@ public class Light
 			equal(other.fadeInDuration, fadeInDuration) &&
 			other.npcIds.equals(npcIds) &&
 			other.objectIds.equals(objectIds) &&
-			other.projectileIds.equals(projectileIds);
+			other.projectileIds.equals(projectileIds) &&
+			other.equipmentIds.equals(equipmentIds);
 	}
 
 	@Override
@@ -289,6 +344,7 @@ public class Light
 		hash = hash * 37 + npcIds.hashCode();
 		hash = hash * 37 + objectIds.hashCode();
 		hash = hash * 37 + projectileIds.hashCode();
+		hash = hash * 37 + equipmentIds.hashCode();
 		return hash;
 	}
 

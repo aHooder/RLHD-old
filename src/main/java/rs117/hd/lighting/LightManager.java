@@ -28,14 +28,18 @@ package rs117.hd.lighting;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.primitives.Ints;
+import com.jogamp.opengl.math.FloatUtil;
+import static com.jogamp.opengl.math.FloatUtil.cos;
+import static com.jogamp.opengl.math.FloatUtil.pow;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Iterator;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-
-import com.jogamp.opengl.math.FloatUtil;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Constants;
@@ -45,20 +49,21 @@ import net.runelite.api.GameState;
 import net.runelite.api.GroundObject;
 import net.runelite.api.NPC;
 import net.runelite.api.Perspective;
+import net.runelite.api.Player;
+import net.runelite.api.PlayerComposition;
 import net.runelite.api.Projectile;
 import net.runelite.api.Tile;
 import net.runelite.api.TileObject;
 import net.runelite.api.WallObject;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcChanged;
+import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.PlayerChanged;
+import net.runelite.api.events.PlayerDespawned;
+import rs117.hd.HDUtils;
 import rs117.hd.HdPlugin;
 import rs117.hd.HdPluginConfig;
-import rs117.hd.HDUtils;
-
-import static com.jogamp.opengl.math.FloatUtil.cos;
-import static com.jogamp.opengl.math.FloatUtil.pow;
 import rs117.hd.utils.Env;
 import rs117.hd.utils.FileWatcher;
 
@@ -81,6 +86,7 @@ public class LightManager
 	private static final ListMultimap<Integer, Light> NPC_LIGHTS = ArrayListMultimap.create();
 	private static final ListMultimap<Integer, Light> OBJECT_LIGHTS = ArrayListMultimap.create();
 	private static final ListMultimap<Integer, Light> PROJECTILE_LIGHTS = ArrayListMultimap.create();
+	private static final ListMultimap<Integer, Light> EQUIPMENT_LIGHTS = ArrayListMultimap.create();
 
 	private FileWatcher fileWatcher;
 
@@ -137,18 +143,19 @@ public class LightManager
 		NPC_LIGHTS.clear();
 		OBJECT_LIGHTS.clear();
 		PROJECTILE_LIGHTS.clear();
+		EQUIPMENT_LIGHTS.clear();
 	}
 
 	public void reloadLightConfiguration()
 	{
 		clearLightConfiguration();
-		LightConfig.load(WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS);
+		LightConfig.load(WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS, EQUIPMENT_LIGHTS);
 	}
 
 	public void reloadLightConfiguration(File jsonFile)
 	{
 		clearLightConfiguration();
-		LightConfig.load(jsonFile, WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS);
+		LightConfig.load(jsonFile, WORLD_LIGHTS, NPC_LIGHTS, OBJECT_LIGHTS, PROJECTILE_LIGHTS, EQUIPMENT_LIGHTS);
 	}
 
 	public void update()
@@ -170,6 +177,10 @@ public class LightManager
 			{
 				reloadLightConfiguration();
 			}
+			System.out.println("Loaded equipment lights:");
+			EQUIPMENT_LIGHTS.forEach((id, l) -> {
+				System.out.println("Equipment " + id + " light: " + l.description);
+			});
 			reset();
 			loadSceneLights();
 		}
@@ -266,6 +277,56 @@ public class LightManager
 					}
 				}
 				else
+				{
+					light.visible = false;
+				}
+			}
+
+			if (light.player != null)
+			{
+				if (!Arrays.stream(light.player.getPlayerComposition().getEquipmentIds()).anyMatch(id -> id == light.equipmentId))
+				{
+					lightIterator.remove();
+					continue;
+				}
+
+				light.x = light.player.getLocalLocation().getX();
+				light.y = light.player.getLocalLocation().getY();
+
+				int orientation = light.player.getOrientation();
+
+				if (orientation != -1 && light.alignment != Alignment.CENTER)
+				{
+					orientation += light.alignment.orientation;
+					orientation %= 2048;
+
+					float sine = Perspective.SINE[orientation] / 65536f;
+					float cosine = Perspective.COSINE[orientation] / 65536f;
+					//cosine /= (float)light.localSizeX / (float)localSizeY;
+
+					int offsetX = (int)(sine   *  Perspective.LOCAL_HALF_TILE_SIZE);
+					int offsetY = (int)(cosine  *  Perspective.LOCAL_HALF_TILE_SIZE);
+
+					light.x += offsetX;
+					light.y += offsetY;
+				}
+
+				int plane = light.player.getWorldLocation().getPlane();
+				light.plane = plane;
+
+				// Interpolate between tile heights based on specific scene coordinates.
+				float lerpX = (light.x % Perspective.LOCAL_TILE_SIZE) / (float) Perspective.LOCAL_TILE_SIZE;
+				float lerpY = (light.y % Perspective.LOCAL_TILE_SIZE) / (float) Perspective.LOCAL_TILE_SIZE;
+				int baseTileX = (int) Math.floor(light.x / (float) Perspective.LOCAL_TILE_SIZE);
+				int baseTileY = (int) Math.floor(light.y / (float) Perspective.LOCAL_TILE_SIZE);
+				float heightNorth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY + 1], client.getTileHeights()[plane][baseTileX + 1][baseTileY + 1], lerpX);
+				float heightSouth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY], client.getTileHeights()[plane][baseTileX + 1][baseTileY], lerpX);
+				float tileHeight = HDUtils.lerp(heightSouth, heightNorth, lerpY);
+				light.z = (int) tileHeight - 1 - light.height;
+
+				light.visible = light.player.getModel() != null;
+
+				if (!hdPlugin.configEquipmentLights)
 				{
 					light.visible = false;
 				}
@@ -475,6 +536,7 @@ public class LightManager
 		}
 
 		updateSceneNpcs();
+		updateSceneEquipment();
 	}
 
 	public void updateSceneNpcs()
@@ -484,10 +546,18 @@ public class LightManager
 		client.getNpcs().forEach(this::addNpcLights);
 	}
 
-	public void updateNpcChanged(NpcChanged npcChanged)
+	public void updateNpcLights(NpcChanged npcChanged)
 	{
-		removeNpcLight(npcChanged);
+		removeNpcLights(npcChanged);
 		addNpcLights(npcChanged.getNpc());
+	}
+
+	void updateSceneEquipment()
+	{
+		for (Player player : client.getPlayers())
+		{
+			addEquipmentLights(player);
+		}
 	}
 
 	public ArrayList<SceneLight> getVisibleLights(int maxDistance, int maxLights)
@@ -568,14 +638,61 @@ public class LightManager
 		}
 	}
 
-	public void removeNpcLight(NpcDespawned npcDespawned)
+	public void removeNpcLights(NpcDespawned npcDespawned)
 	{
 		sceneLights.removeIf(light -> light.npc == npcDespawned.getNpc());
 	}
 
-	public void removeNpcLight(NpcChanged npcChanged)
+	public void removeNpcLights(NpcChanged npcChanged)
 	{
 		sceneLights.removeIf(light -> light.npc == npcChanged.getNpc());
+	}
+
+	public void addEquipmentLights(Player player)
+	{
+		PlayerComposition composition = player.getPlayerComposition();
+		if (composition != null)
+		{
+			for (int id : composition.getEquipmentIds())
+			{
+				addEquipmentLights(id, player);
+			}
+		}
+	}
+
+	public void addEquipmentLights(int id, Player player)
+	{
+		System.out.println("Adding equipment lights for player: " + player.getName() + ", equipment ID: " + id);
+		for (Light l : EQUIPMENT_LIGHTS.get(id))
+		{
+			System.out.println("Adding equipment light: " + l.description);
+			// prevent duplicate lights being spawned for the same NPC
+			if (sceneLights.stream().anyMatch(x -> x.player == player && x.equipmentId == id))
+			{
+				continue;
+			}
+
+			SceneLight light = new SceneLight(
+				0, 0, -1, l.height,
+				l.alignment, l.radius, l.strength,
+				l.color, l.type, l.duration, l.range, 0);
+			light.player = player;
+			light.equipmentId = id;
+			light.visible = false;
+
+			sceneLights.add(light);
+		}
+	}
+
+	public void removeEquipmentLights(Player player)
+	{
+		sceneLights.removeIf(light -> light.player == player);
+	}
+
+	public void updateEquipmentLights(Player player)
+	{
+		removeEquipmentLights(player);
+		addEquipmentLights(player);
 	}
 
 	public void addObjectLight(TileObject tileObject, int plane)

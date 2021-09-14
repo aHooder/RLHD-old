@@ -30,7 +30,12 @@ import com.google.inject.Provides;
 import com.jogamp.nativewindow.awt.AWTGraphicsConfiguration;
 import com.jogamp.nativewindow.awt.JAWTWindow;
 import com.jogamp.opengl.GL;
-import static com.jogamp.opengl.GL.*;
+import static com.jogamp.opengl.GL.GL_ARRAY_BUFFER;
+import static com.jogamp.opengl.GL.GL_BACK;
+import static com.jogamp.opengl.GL.GL_DEPTH_TEST;
+import static com.jogamp.opengl.GL.GL_DYNAMIC_DRAW;
+import static com.jogamp.opengl.GL.GL_STATIC_DRAW;
+import static com.jogamp.opengl.GL.GL_TEXTURE_2D;
 import static com.jogamp.opengl.GL2ES2.GL_STREAM_DRAW;
 import static com.jogamp.opengl.GL2ES3.GL_STATIC_COPY;
 import static com.jogamp.opengl.GL2ES3.GL_UNIFORM_BUFFER;
@@ -44,14 +49,14 @@ import com.jogamp.opengl.GLFBODrawable;
 import com.jogamp.opengl.GLProfile;
 import com.jogamp.opengl.math.Matrix4;
 import java.awt.Canvas;
-import java.awt.Component;
 import java.awt.Color;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
-import java.awt.event.ComponentListener;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.ComponentListener;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
@@ -72,8 +77,44 @@ import jogamp.nativewindow.macosx.OSXUtil;
 import jogamp.newt.awt.NewtFactoryAWT;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.*;
-import net.runelite.api.events.*;
+import net.runelite.api.BufferProvider;
+import net.runelite.api.Client;
+import net.runelite.api.DecorativeObject;
+import net.runelite.api.GameObject;
+import net.runelite.api.GameState;
+import net.runelite.api.GroundObject;
+import net.runelite.api.Model;
+import net.runelite.api.Perspective;
+import net.runelite.api.Renderable;
+import net.runelite.api.Scene;
+import net.runelite.api.SceneTileModel;
+import net.runelite.api.SceneTilePaint;
+import net.runelite.api.Texture;
+import net.runelite.api.TextureProvider;
+import net.runelite.api.WallObject;
+import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.DecorativeObjectChanged;
+import net.runelite.api.events.DecorativeObjectDespawned;
+import net.runelite.api.events.DecorativeObjectSpawned;
+import net.runelite.api.events.GameObjectChanged;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GroundObjectChanged;
+import net.runelite.api.events.GroundObjectDespawned;
+import net.runelite.api.events.GroundObjectSpawned;
+import net.runelite.api.events.NpcChanged;
+import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.PlayerChanged;
+import net.runelite.api.events.PlayerDespawned;
+import net.runelite.api.events.PlayerSpawned;
+import net.runelite.api.events.ProjectileMoved;
+import net.runelite.api.events.ResizeableChanged;
+import net.runelite.api.events.WallObjectChanged;
+import net.runelite.api.events.WallObjectDespawned;
+import net.runelite.api.events.WallObjectSpawned;
 import net.runelite.api.hooks.DrawCallbacks;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -83,6 +124,12 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginInstantiationException;
 import net.runelite.client.plugins.PluginManager;
+import net.runelite.client.ui.DrawManager;
+import net.runelite.client.util.OSType;
+import org.jocl.CL;
+import static org.jocl.CL.CL_MEM_READ_ONLY;
+import static org.jocl.CL.CL_MEM_WRITE_ONLY;
+import static org.jocl.CL.clCreateFromGLBuffer;
 import static rs117.hd.GLUtil.glDeleteBuffer;
 import static rs117.hd.GLUtil.glDeleteFrameBuffer;
 import static rs117.hd.GLUtil.glDeleteRenderbuffers;
@@ -104,12 +151,6 @@ import rs117.hd.lighting.SceneLight;
 import rs117.hd.materials.Material;
 import rs117.hd.materials.ObjectProperties;
 import rs117.hd.template.Template;
-import net.runelite.client.ui.DrawManager;
-import net.runelite.client.util.OSType;
-import org.jocl.CL;
-import static org.jocl.CL.CL_MEM_READ_ONLY;
-import static org.jocl.CL.CL_MEM_WRITE_ONLY;
-import static org.jocl.CL.clCreateFromGLBuffer;
 import rs117.hd.utils.Env;
 import rs117.hd.utils.FileWatcher;
 
@@ -399,6 +440,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	public boolean configTzhaarHD = true;
 	public boolean configProjectileLights = true;
 	public boolean configNpcLights = true;
+	public boolean configEquipmentLights = true;
 	public boolean configShadowsEnabled = false;
 	public boolean configExpandShadowDraw = false;
 	public boolean configHdInfernalTexture = true;
@@ -452,6 +494,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		configTzhaarHD = config.tzhaarHD();
 		configProjectileLights = config.projectileLights();
 		configNpcLights = config.npcLights();
+		configEquipmentLights = config.equipmentLights();
 		configShadowsEnabled = config.shadowsEnabled();
 		configExpandShadowDraw = config.expandShadowDraw();
 		configHdInfernalTexture = config.hdInfernalTexture();
@@ -2337,6 +2380,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			case "npcLights":
 				configNpcLights = config.npcLights();
 				break;
+			case "equipmentLights":
+				configEquipmentLights = config.equipmentLights();
+				break;
 			case "expandShadowDraw":
 				configExpandShadowDraw = config.expandShadowDraw();
 				break;
@@ -2704,13 +2750,31 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned npcDespawned)
 	{
-		lightManager.removeNpcLight(npcDespawned);
+		lightManager.removeNpcLights(npcDespawned);
 	}
 
 	@Subscribe
 	public void onNpcChanged(NpcChanged npcChanged)
 	{
-		lightManager.updateNpcChanged(npcChanged);
+		lightManager.updateNpcLights(npcChanged);
+	}
+
+	@Subscribe
+	public void onPlayerSpawned(PlayerSpawned playerSpawned)
+	{
+		lightManager.addEquipmentLights(playerSpawned.getPlayer());
+	}
+
+	@Subscribe
+	public void onPlayerDespawned(PlayerDespawned playerDespawned)
+	{
+		lightManager.removeEquipmentLights(playerDespawned.getPlayer());
+	}
+
+	@Subscribe
+	public void onPlayerChanged(PlayerChanged playerChanged)
+	{
+		lightManager.updateEquipmentLights(playerChanged.getPlayer());
 	}
 
 	@Subscribe
