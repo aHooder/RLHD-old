@@ -177,10 +177,6 @@ public class LightManager
 			{
 				reloadLightConfiguration();
 			}
-			System.out.println("Loaded equipment lights:");
-			EQUIPMENT_LIGHTS.forEach((id, l) -> {
-				System.out.println("Equipment " + id + " light: " + l.description);
-			});
 			reset();
 			loadSceneLights();
 		}
@@ -264,9 +260,46 @@ public class LightManager
 					float lerpY = (light.y % Perspective.LOCAL_TILE_SIZE) / (float) Perspective.LOCAL_TILE_SIZE;
 					int baseTileX = (int) Math.floor(light.x / (float) Perspective.LOCAL_TILE_SIZE);
 					int baseTileY = (int) Math.floor(light.y / (float) Perspective.LOCAL_TILE_SIZE);
-					float heightNorth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY + 1], client.getTileHeights()[plane][baseTileX + 1][baseTileY + 1], lerpX);
-					float heightSouth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY], client.getTileHeights()[plane][baseTileX + 1][baseTileY], lerpX);
+					boolean bridge = client.getScene().getTiles()[plane][baseTileX][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY].getBridge() != null;
+					boolean nBridge = client.getScene().getTiles()[plane][baseTileX][baseTileY + 1] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+					boolean eBridge = client.getScene().getTiles()[plane][baseTileX + 1][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+					boolean sBridge = client.getScene().getTiles()[plane][baseTileX][baseTileY - 1] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+					boolean wBridge = client.getScene().getTiles()[plane][baseTileX - 1][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+					int nwPlane = plane;
+					int nePlane = plane;
+					int swPlane = plane;
+					int sePlane = plane;
+					if (bridge)
+					{
+						nwPlane = nePlane = swPlane = sePlane = plane + 1;
+					}
+					else
+					{
+						if (nBridge || wBridge)
+						{
+							nwPlane++;
+						}
+						if (nBridge || eBridge)
+						{
+							nePlane++;
+						}
+						if (sBridge || wBridge)
+						{
+							swPlane++;
+						}
+						if (sBridge || eBridge)
+						{
+							sePlane++;
+						}
+					}
+					float nwHeight = client.getTileHeights()[nwPlane][baseTileX][baseTileY + 1];
+					float neHeight = client.getTileHeights()[nePlane][baseTileX + 1][baseTileY + 1];
+					float swHeight = client.getTileHeights()[swPlane][baseTileX][baseTileY];
+					float seHeight = client.getTileHeights()[sePlane][baseTileX + 1][baseTileY];
+					float heightNorth = HDUtils.lerp(nwHeight, neHeight, lerpX);
+					float heightSouth = HDUtils.lerp(swHeight, seHeight, lerpX);
 					float tileHeight = HDUtils.lerp(heightSouth, heightNorth, lerpY);
+
 					light.z = (int) tileHeight - 1 - light.height;
 
 					light.visible = light.npc.getModel() != null;
@@ -293,7 +326,7 @@ public class LightManager
 				light.x = light.player.getLocalLocation().getX();
 				light.y = light.player.getLocalLocation().getY();
 
-				int orientation = light.player.getOrientation();
+				int orientation = light.player.getCurrentOrientation();
 
 				if (orientation != -1 && light.alignment != Alignment.CENTER)
 				{
@@ -304,8 +337,9 @@ public class LightManager
 					float cosine = Perspective.COSINE[orientation] / 65536f;
 					//cosine /= (float)light.localSizeX / (float)localSizeY;
 
-					int offsetX = (int)(sine   *  Perspective.LOCAL_HALF_TILE_SIZE);
-					int offsetY = (int)(cosine  *  Perspective.LOCAL_HALF_TILE_SIZE);
+					// multiply by 0.75 to keep lights a little closer to the player model
+					int offsetX = (int)(sine   *  Perspective.LOCAL_HALF_TILE_SIZE * 0.75f);
+					int offsetY = (int)(cosine  *  Perspective.LOCAL_HALF_TILE_SIZE * 0.75f);
 
 					light.x += offsetX;
 					light.y += offsetY;
@@ -319,9 +353,46 @@ public class LightManager
 				float lerpY = (light.y % Perspective.LOCAL_TILE_SIZE) / (float) Perspective.LOCAL_TILE_SIZE;
 				int baseTileX = (int) Math.floor(light.x / (float) Perspective.LOCAL_TILE_SIZE);
 				int baseTileY = (int) Math.floor(light.y / (float) Perspective.LOCAL_TILE_SIZE);
-				float heightNorth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY + 1], client.getTileHeights()[plane][baseTileX + 1][baseTileY + 1], lerpX);
-				float heightSouth = HDUtils.lerp(client.getTileHeights()[plane][baseTileX][baseTileY], client.getTileHeights()[plane][baseTileX + 1][baseTileY], lerpX);
+				boolean bridge = client.getScene().getTiles()[plane][baseTileX][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY].getBridge() != null;
+				boolean nBridge = client.getScene().getTiles()[plane][baseTileX][baseTileY + 1] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+				boolean eBridge = client.getScene().getTiles()[plane][baseTileX + 1][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+				boolean sBridge = client.getScene().getTiles()[plane][baseTileX][baseTileY - 1] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+				boolean wBridge = client.getScene().getTiles()[plane][baseTileX - 1][baseTileY] != null && client.getScene().getTiles()[plane][baseTileX][baseTileY + 1].getBridge() != null;
+				int nwPlane = plane;
+				int nePlane = plane;
+				int swPlane = plane;
+				int sePlane = plane;
+				if (bridge)
+				{
+					nwPlane = nePlane = swPlane = sePlane = plane + 1;
+				}
+				else
+				{
+					if (nBridge || wBridge)
+					{
+						nwPlane++;
+					}
+					if (nBridge || eBridge)
+					{
+						nePlane++;
+					}
+					if (sBridge || wBridge)
+					{
+						swPlane++;
+					}
+					if (sBridge || eBridge)
+					{
+						sePlane++;
+					}
+				}
+				float nwHeight = client.getTileHeights()[nwPlane][baseTileX][baseTileY + 1];
+				float neHeight = client.getTileHeights()[nePlane][baseTileX + 1][baseTileY + 1];
+				float swHeight = client.getTileHeights()[swPlane][baseTileX][baseTileY];
+				float seHeight = client.getTileHeights()[sePlane][baseTileX + 1][baseTileY];
+				float heightNorth = HDUtils.lerp(nwHeight, neHeight, lerpX);
+				float heightSouth = HDUtils.lerp(swHeight, seHeight, lerpX);
 				float tileHeight = HDUtils.lerp(heightSouth, heightNorth, lerpY);
+
 				light.z = (int) tileHeight - 1 - light.height;
 
 				light.visible = light.player.getModel() != null;
@@ -662,10 +733,8 @@ public class LightManager
 
 	public void addEquipmentLights(int id, Player player)
 	{
-		System.out.println("Adding equipment lights for player: " + player.getName() + ", equipment ID: " + id);
 		for (Light l : EQUIPMENT_LIGHTS.get(id))
 		{
-			System.out.println("Adding equipment light: " + l.description);
 			// prevent duplicate lights being spawned for the same NPC
 			if (sceneLights.stream().anyMatch(x -> x.player == player && x.equipmentId == id))
 			{
