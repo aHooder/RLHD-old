@@ -340,6 +340,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int uniLightZ;
 	private int uniShadowMaxBias;
 	private int uniShadowsEnabled;
+	private int uniDebugShadowMap;
 
 	// Shadow program uniforms
 	private int uniShadowTexturesHD;
@@ -839,6 +840,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		uniLightZ = gl.glGetUniformLocation(glProgram, "lightZ");
 		uniShadowMaxBias = gl.glGetUniformLocation(glProgram, "shadowMaxBias");
 		uniShadowsEnabled = gl.glGetUniformLocation(glProgram, "shadowsEnabled");
+		uniDebugShadowMap = gl.glGetUniformLocation(glProgram, "debugShadowMap");
 
 		uniTex = gl.glGetUniformLocation(glUiProgram, "tex");
 		uniTexSamplingMode = gl.glGetUniformLocation(glUiProgram, "samplingMode");
@@ -1930,6 +1932,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			gl.glUniform1f(uniShadowMaxBias, maxBias / 10000f);
 
 			gl.glUniform1i(uniShadowsEnabled, configShadowsEnabled ? 1 : 0);
+			gl.glUniform1i(uniDebugShadowMap, config.debugShadowMap() ? 1 : 0);
 
 			// Calculate projection matrix
 			Matrix4 projectionMatrix = new Matrix4();
@@ -2423,7 +2426,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				// Up/down
 				int worldZ = client.getCameraY2() + y;
 				// Negative Z is up, so the lowest point is maxZ and all worldZ's have a smaller value
-				final int SCENE_BOUNDS_MAX_Z = 10000;
+				final int SCENE_BOUNDS_MAX_Z = 0;
 				int heightAboveMin = SCENE_BOUNDS_MAX_Z - worldZ;
 
 				int absoluteHeight = heightAboveMin + modelHeight + XYZMag;

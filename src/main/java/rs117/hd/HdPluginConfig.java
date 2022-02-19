@@ -59,6 +59,17 @@ public interface HdPluginConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "debugShadowMap",
+		name = "Debug shadow map",
+		description = "Overlay the shadow map on screen",
+		position = -14
+	)
+	default boolean debugShadowMap()
+	{
+		return true;
+	}
+
 	/*====== Limited-time settings ======*/
 
 	@ConfigSection(

@@ -95,6 +95,7 @@ uniform float lightY;
 uniform float lightZ;
 uniform float shadowMaxBias;
 uniform int shadowsEnabled;
+uniform bool debugShadowMap;
 
 // general HD settings
 uniform int waterEffects;
@@ -133,6 +134,14 @@ out vec4 FragColor;
 #define ICE 8
 
 void main() {
+    if (debugShadowMap) {
+        if (gl_FragCoord.x < 512 && gl_FragCoord.y < 512) {
+//            ivec2 dims = textureSize(shadowMap, 0);
+            FragColor = vec4(vec3(texture(shadowMap, gl_FragCoord.xy / 512.f).x), 1);
+            return;
+        }
+    }
+
     vec3 camPos = vec3(cameraX, cameraY, cameraZ);
     vec3 downDir = normalize(vec3(0, -1.0, 0));
     vec3 viewDir = normalize(camPos - position);
