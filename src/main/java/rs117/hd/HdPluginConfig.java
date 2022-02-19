@@ -48,6 +48,17 @@ import rs117.hd.config.WaterEffects;
 @ConfigGroup("hd")
 public interface HdPluginConfig extends Config
 {
+	@ConfigItem(
+		keyName = "useOldIsVisible",
+		name = "Use old isVisible",
+		description = "Uses the old isVisible check when enabled",
+		position = -15
+	)
+	default boolean useOldIsVisible()
+	{
+		return true;
+	}
+
 	/*====== Limited-time settings ======*/
 
 	@ConfigSection(

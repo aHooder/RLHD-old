@@ -42,6 +42,11 @@ import com.jogamp.opengl.GLDrawableFactory;
 import com.jogamp.opengl.GLException;
 import com.jogamp.opengl.GLFBODrawable;
 import com.jogamp.opengl.GLProfile;
+import static com.jogamp.opengl.math.FloatUtil.HALF_PI;
+import static com.jogamp.opengl.math.FloatUtil.PI;
+import static com.jogamp.opengl.math.FloatUtil.TWO_PI;
+import static com.jogamp.opengl.math.FloatUtil.abs;
+import static com.jogamp.opengl.math.FloatUtil.tan;
 import com.jogamp.opengl.math.Matrix4;
 import java.awt.Canvas;
 import java.awt.Component;
@@ -2336,7 +2341,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	/**
 	 * Check is a model is visible and should be drawn.
 	 */
-	private boolean isVisible(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z)
+	private boolean oldIsVisible(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z)
 	{
 		model.calculateBoundsCylinder();
 
@@ -2377,6 +2382,138 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Check is a model is visible and should be drawn.
+	 */
+	private boolean isVisible(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z)
+	{
+		if (config.useOldIsVisible())
+			return oldIsVisible(model, pitchSin, pitchCos, yawSin, yawCos, x, y, z);
+		final int XYZMag = model.getXYZMag();
+		final int zoom = client.get3dZoom();
+		final int modelHeight = model.getModelHeight();
+
+		int clipMaxX = client.getRasterizer3D_clipMidX2();
+		int clipMinX = client.getRasterizer3D_clipNegativeMidX();
+		int clipCeilY = client.getRasterizer3D_clipNegativeMidY();
+		int clipFloorY = client.getRasterizer3D_clipMidY2();
+
+		// _x, _y and _z are relative to the camera
+
+		// Z = depth, negative going away from the screen
+		int yawRotatedZ = yawCos * z - yawSin * x >> 16;
+		int pitchAndYawRotatedZ = pitchSin * y + pitchCos * yawRotatedZ >> 16;
+		int rotatedMag = pitchCos * XYZMag >> 16;
+		// Add visual height to depth, effectively moving it further away from the camera,
+		// probably done to not hide models that should be visible even though their base is outside the viewport.
+		int depth = pitchAndYawRotatedZ + rotatedMag;
+
+		float lightPitch = environmentManager.currentLightPitch;
+		float lightYaw = environmentManager.currentLightYaw;
+
+		if (configShadowsEnabled)
+		{
+			// Move clip bounds by the length of the shadow the model is casting in either direction
+
+			float sunPitchTan = abs(tan(lightPitch));
+			if (abs(sunPitchTan) > .05f) // Skip when sun rays are nearly parallel with the ground plane
+			{
+				// Up/down
+				int worldZ = client.getCameraY2() + y;
+				// Negative Z is up, so the lowest point is maxZ and all worldZ's have a smaller value
+				final int SCENE_BOUNDS_MAX_Z = 10000;
+				int heightAboveMin = SCENE_BOUNDS_MAX_Z - worldZ;
+
+				int absoluteHeight = heightAboveMin + modelHeight + XYZMag;
+				int shadowRadius = (int) (absoluteHeight / sunPitchTan);
+
+				float cameraYaw = (float) (client.getCameraYaw() * Perspective.UNIT);
+				float relativeSunYaw = lightYaw - cameraYaw;
+
+				// Invert yaw depending on the sun's vertical angle
+				if (lightPitch > HALF_PI && lightPitch < TWO_PI - HALF_PI)
+				{
+					relativeSunYaw += PI;
+				}
+				// Normalize to between between -pi and pi
+				relativeSunYaw -= TWO_PI * Math.floor((relativeSunYaw + Math.PI) / TWO_PI);
+
+				// Lengths relative to the ground plane after rotation around the up/down axis
+				int shadowLengthHorizontal = (int) Math.abs(shadowRadius * Math.sin(relativeSunYaw));
+				int shadowLengthVertical = (int) Math.abs(shadowRadius * Math.cos(relativeSunYaw));
+
+				// Calculate shadow lengths relative to the camera including pitch
+				int shadowLengthUpDown = shadowLengthVertical * pitchSin >> 16;
+				int shadowLengthDepth = shadowLengthVertical * pitchCos >> 16;
+
+				// Shift the model further into the scene by the shadow's depth
+				depth += shadowLengthDepth;
+
+				// Increase clip bounds horizontally depending on shadow direction
+				if (relativeSunYaw > 0)
+				{
+					// shadow pointing left
+					clipMaxX += shadowLengthHorizontal;
+				}
+				else
+				{
+					// shadow pointing right
+					clipMinX -= shadowLengthHorizontal;
+				}
+
+				// Increase clip bounds vertically depending on shadow direction
+				if (Math.abs(relativeSunYaw) < HALF_PI)
+				{
+					// shadow pointing upwards
+					clipFloorY += shadowLengthUpDown;
+				}
+				else
+				{
+					// shadow pointing downwards
+					clipCeilY -= shadowLengthUpDown;
+				}
+
+				// Account for shadows being cast on the ground from models up in the air outside the viewport
+				clipCeilY -= sunPitchTan * absoluteHeight;
+			}
+		}
+
+		// Hide models that are too close to the camera
+		if (depth <= 50)
+		{
+			return false;
+		}
+
+		// X in rotated world coords, 0 in the middle of the screen, positive to the right
+		int projX = z * yawSin + yawCos * x >> 16;
+		// Calculate minimum X value given the object's magnitude
+		int minProjX = (projX - XYZMag) * zoom;
+		if (minProjX / depth >= clipMaxX)
+		{
+			return false;
+		}
+
+		int maxProjX = (projX + XYZMag) * zoom;
+		if (maxProjX / depth <= clipMinX)
+		{
+			return false;
+		}
+
+		// _y is world height relative to camera height
+		// Y in rotated world coords, 0 in the middle with, positive going upwards
+		int projY = pitchCos * y - yawRotatedZ * pitchSin >> 16;
+		int yMag = pitchSin * XYZMag >> 16;
+		int maxProjY = (projY + yMag) * zoom;
+		if (maxProjY / depth <= clipCeilY)
+		{
+			return false;
+		}
+
+		int rotatedHeight = (pitchCos * modelHeight >> 16) + yMag;
+		int minProjY = (projY - rotatedHeight) * zoom;
+		return minProjY / depth < clipFloorY;
 	}
 
 	/**
