@@ -37,7 +37,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Template
 {
-	private final List<Function<String, String>> resourceLoaders = new ArrayList<>();
+	private final List<Function<String, String>> resourceLoaders;
+
+	public Template()
+	{
+		this(new ArrayList<>());
+	}
+
+	public Template(ArrayList<Function<String, String>> resourceLoaders)
+	{
+		this.resourceLoaders = resourceLoaders;
+	}
 
 	public String process(String str)
 	{
@@ -73,15 +83,21 @@ public class Template
 		return "";
 	}
 
-	public Template add(Function<String, String> fn)
+	public Template append(Function<String, String> fn)
 	{
 		resourceLoaders.add(fn);
 		return this;
 	}
 
-	public Template addInclude(Class<?> clazz)
+	public Template prepend(Function<String, String> fn)
 	{
-		return add(f ->
+		resourceLoaders.add(0, fn);
+		return this;
+	}
+
+	public Template appendInclude(Class<?> clazz)
+	{
+		return append(f ->
 		{
 			try (InputStream is = clazz.getResourceAsStream(f))
 			{
@@ -108,5 +124,10 @@ public class Template
 		{
 			throw new RuntimeException(e);
 		}
+	}
+
+	public Template copy()
+	{
+		return new Template(new ArrayList<>(resourceLoaders));
 	}
 }

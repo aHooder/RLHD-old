@@ -29,6 +29,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.jogamp.opengl.GL4;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import rs117.hd.template.Template;
@@ -69,7 +70,9 @@ public class Shader
 				int shader = gl.glCreateShader(unit.type);
 				if (shader == 0)
 				{
-					throw new ShaderException("Unable to create shader of type " + unit.type);
+					throw new ShaderException(
+						"Unable to create shader of type " + unit.type +
+						" when compiling shader: " + unit.filename);
 				}
 
 				String source = template.load(unit.filename);
@@ -80,7 +83,7 @@ public class Shader
 				{
 					String err = GLUtil.glGetShaderInfoLog(gl, shader);
 					gl.glDeleteShader(shader);
-					throw new ShaderException(err);
+					throw new ShaderException("Error when compiling shader: " + unit.filename + "\n" + err);
 				}
 				gl.glAttachShader(program, shader);
 				shaders[i++] = shader;
@@ -91,7 +94,8 @@ public class Shader
 			if (GLUtil.glGetProgram(gl, program, gl.GL_LINK_STATUS) == gl.GL_FALSE)
 			{
 				String err = GLUtil.glGetProgramInfoLog(gl, program);
-				throw new ShaderException(err);
+				throw new ShaderException("Error when linking shaders: " +
+					units.stream().map(u -> u.filename).collect(Collectors.joining(", ")) + "\n" + err);
 			}
 
 			ok = true;
