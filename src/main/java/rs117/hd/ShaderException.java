@@ -24,7 +24,7 @@
  */
 package rs117.hd;
 
-class ShaderException extends Exception
+public class ShaderException extends Exception
 {
 	ShaderException(String message)
 	{

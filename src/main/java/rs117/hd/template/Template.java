@@ -37,7 +37,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Template
 {
-	private final List<Function<String, String>> resourceLoaders = new ArrayList<>();
+	private final List<Function<String, String>> resourceLoaders;
+
+	public Template()
+	{
+		this(new ArrayList<>());
+	}
+
+	public Template(ArrayList<Function<String, String>> resourceLoaders)
+	{
+		this.resourceLoaders = resourceLoaders;
+	}
 
 	public String process(String str)
 	{
@@ -108,5 +118,10 @@ public class Template
 		{
 			throw new RuntimeException(e);
 		}
+	}
+
+	public Template copy()
+	{
+		return new Template(new ArrayList<>(resourceLoaders));
 	}
 }
