@@ -26626,5 +26626,100 @@
     "objectIds": [
       29899
     ]
+  },
+  {
+    "description": "FIRE_CAPE",
+    "height": 90,
+    "alignment": "BACK",
+    "radius": 150,
+    "strength": 6.0,
+    "color": [
+      0.8627451,
+      0.6117647,
+      0.2901961
+    ],
+    "type": "PULSE",
+    "duration": 4000.0,
+    "range": 8.0,
+    "equipmentIds": [
+      "FIRE_CAPE_10566",
+      "FIRE_CAPE"
+    ]
+  },
+  {
+    "description": "FIRE_MAX_CAPE",
+    "height": 90,
+    "alignment": "BACK",
+    "radius": 150,
+    "strength": 6.0,
+    "color": [
+      0.8627451,
+      0.6117647,
+      0.2901961
+    ],
+    "type": "PULSE",
+    "duration": 4000.0,
+    "range": 8.0,
+    "equipmentIds": [
+      "FIRE_MAX_CAPE",
+      "FIRE_MAX_CAPE_21186"
+    ]
+  },
+  {
+    "description": "INFERNAL_CAPE",
+    "height": 90,
+    "alignment": "BACK",
+    "radius": 150,
+    "strength": 6.0,
+    "color": [
+      0.52156866,
+      0.2509804,
+      0.0
+    ],
+    "type": "PULSE",
+    "duration": 4000.0,
+    "range": 8.0,
+    "equipmentIds": [
+      "INFERNAL_CAPE_21297",
+      "INFERNAL_CAPE_23622",
+      "INFERNAL_CAPE"
+    ]
+  },
+  {
+    "description": "INFERNAL_MAX_CAPE",
+    "height": 90,
+    "alignment": "BACK",
+    "radius": 150,
+    "strength": 6.0,
+    "color": [
+      0.52156866,
+      0.2509804,
+      0.0
+    ],
+    "type": "PULSE",
+    "duration": 4000.0,
+    "range": 8.0,
+    "equipmentIds": [
+      "INFERNAL_MAX_CAPE",
+      "INFERNAL_MAX_CAPE_21285"
+    ]
+  },
+  {
+    "description": "LIT_BUG_LANTERN",
+    "height": 50,
+    "alignment": "LEFT",
+    "radius": 250,
+    "strength": 6.0,
+    "color": [
+      1.0,
+      0.9137255,
+      0.5411765
+    ],
+    "type": "FLICKER",
+    "duration": 0.0,
+    "range": 10.0,
+    "equipmentIds": [
+      "LIT_BUG_LANTERN"
+    ]
   }
 ]
