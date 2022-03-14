@@ -160,7 +160,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 	private static final int[] eightIntWrite = new int[8];
 
 	@Inject
-	private Client client;
+	public Client client;
 	
 	@Inject
 	private OpenCLManager openCLManager;
@@ -2190,28 +2190,29 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 				uploadScene();
 				nextSceneReload = 0;
 			}
+
+			if (renderHooks.size() > 0)
+			{
+				// In order to release the current context, the native window must be locked
+				invokeWithWindowLocked(() -> {
+					renderHooks.forEach(this::invokeWithSynchronizedGLAccess);
+
+					if (useSharedContexts)
+					{
+						glContext.makeCurrent();
+					}
+					else
+					{
+						glContext.setGLDrawable(glDrawable, true);
+					}
+					setupSyncMode();
+				});
+			}
 		}
 
 		// Texture on UI
 		drawUi(overlayColor, canvasHeight, canvasWidth);
 
-		if (renderHooks.size() > 0)
-		{
-			// In order to release the current context, the native window must be locked
-			invokeWithWindowLocked(() -> {
-				renderHooks.forEach(this::invokeWithSynchronizedGLAccess);
-
-				if (useSharedContexts)
-				{
-					glContext.makeCurrent();
-				}
-				else
-				{
-					glContext.setGLDrawable(glDrawable, true);
-				}
-				setupSyncMode();
-			});
-		}
 		glDrawable.swapBuffers();
 
 		drawManager.processDrawComplete(this::screenshot);
