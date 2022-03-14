@@ -146,11 +146,13 @@ public class TextureViewer implements KeyListener, MouseListener
 		this.hdPlugin = hdPlugin;
 
 		hdPlugin.invokeOnMainThreadIfMacOS(() ->
-			window = GLWindow.create(hdPlugin.glCaps));
-		window.setTitle(title);
-		window.addKeyListener(this);
-		window.addMouseListener(this);
-		window.setWindowDestroyNotifyAction(shutdownHook);
+		{
+			window = GLWindow.create(hdPlugin.glCaps);
+			window.setTitle(title);
+			window.addKeyListener(this);
+			window.addMouseListener(this);
+			window.setWindowDestroyNotifyAction(shutdownHook);
+		});
 
 		hdPlugin.addShutdownHook(shutdownHook);
 		hdPlugin.addShaderHook(shaderHook);
@@ -289,13 +291,15 @@ public class TextureViewer implements KeyListener, MouseListener
 
 	public TextureViewer setSize(int width, int height)
 	{
-		window.setSize(width, height);
+		hdPlugin.invokeOnMainThreadIfMacOS(() ->
+			window.setSize(width, height));
 		return this;
 	}
 
 	public TextureViewer setAlwaysOnTop(boolean alwaysOnTop)
 	{
-		window.setAlwaysOnTop(alwaysOnTop);
+		hdPlugin.invokeOnMainThreadIfMacOS(() ->
+			window.setAlwaysOnTop(alwaysOnTop));
 		return this;
 	}
 
@@ -330,7 +334,8 @@ public class TextureViewer implements KeyListener, MouseListener
 	public TextureViewer setPositionLeftOf(Component component)
 	{
 		Point point = component.getLocationOnScreen();
-		window.setPosition(Math.max(0, point.x - window.getWidth()), Math.max(0, point.y));
+		hdPlugin.invokeOnMainThreadIfMacOS(() ->
+			window.setPosition(Math.max(0, point.x - window.getWidth()), Math.max(0, point.y)));
 		return this;
 	}
 
