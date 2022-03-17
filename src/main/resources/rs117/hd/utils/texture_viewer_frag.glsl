@@ -118,11 +118,11 @@ float sampleDepth(inout vec2 uv, inout float shadowing) {
         vec3 fragToEye = normalize(gOut.tsEyePos - gOut.tsFragPos);
         vec2 xyPerZ = fragToEye.xy / fragToEye.z;
 
-        const int numLayers = 100;
+        int numLayers = hasTexMod(TEXTURE_MODIFIER_INTERPOLATE_DEPTH) ? 50 : 100;
         float heightScale = texDepthScale;
 
         if (numLayers > 1) {
-            const float depthIncrement = 1.f / (numLayers - 1);
+            float depthIncrement = 1.f / (numLayers - 1);
             vec2 deltaUv = xyPerZ * heightScale / (numLayers - 1);
             float layerDepth = 0;
             float texelDepth = sampleDepthDirect(uv);
@@ -138,6 +138,37 @@ float sampleDepth(inout vec2 uv, inout float shadowing) {
             float beforeDiff = prevTexelDepth - (layerDepth - depthIncrement);
 //            uv += deltaUv * clamp(afterDiff / (afterDiff - beforeDiff), 0, 1);
 
+            if (hasTexMod(TEXTURE_MODIFIER_SHADOWS)) {
+                xyPerZ = gOut.tsSunDir.xy / gOut.tsSunDir.z;
+                deltaUv = xyPerZ * heightScale / (numLayers - 1);
+
+                // The current layer is greater than the sampled depth at this point.
+                // Work need to work our way back in the direction of the sun
+                // to see if anything is occluding the final fragment
+                vec2 localuv = uv;
+                // Move local UVs to the intersection point on the layer above the final sample
+                localuv += deltaUv * (depthIncrement + afterDiff);
+                texelDepth = sampleDepthDirect(localuv);
+                layerDepth -= depthIncrement;
+
+                // While the current texelDepth is larger than the layer depth,
+                // the sample must be above ground, and thus is not occluding the final fragment
+                while (texelDepth >= layerDepth && layerDepth >= 0) { // TODO: compare performance to for loop with & without break
+                    layerDepth -= depthIncrement;
+                    localuv += deltaUv;
+                    texelDepth = sampleDepthDirect(localuv);
+                }
+
+                if (texelDepth > layerDepth) {
+                    shadowing = 0;
+                } else {
+                    shadowing = .5f;
+                }
+
+                // We are now above the height map again
+                // If the final texelDepth is higher
+
+            }
         }
 
         if (uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1)

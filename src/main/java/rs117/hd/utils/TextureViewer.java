@@ -137,6 +137,8 @@ public class TextureViewer implements KeyListener, MouseListener
 	private static int uniView;
 	private static int uniProjection;
 
+	private static int uniTime;
+
 	private static final AtomicInteger activeShaderUsers = new AtomicInteger(0);
 	private static final HdPlugin.ShaderHook shaderHook = new HdPlugin.ShaderHook()
 	{
@@ -183,6 +185,8 @@ public class TextureViewer implements KeyListener, MouseListener
 					uniModel = gl.glGetUniformLocation(glProgram, "model");
 					uniView = gl.glGetUniformLocation(glProgram, "view");
 					uniProjection = gl.glGetUniformLocation(glProgram, "projection");
+
+					uniTime = gl.glGetUniformLocation(glProgram, "time");
 				}
 				catch (ShaderException ex)
 				{
@@ -536,6 +540,7 @@ public class TextureViewer implements KeyListener, MouseListener
 			gl.glUniformMatrix4fv(uniModel, 1, false, modelMatrix.getMatrix(), 0);
 			gl.glUniformMatrix4fv(uniView, 1, false, viewMatrix.getMatrix(), 0);
 			gl.glUniformMatrix4fv(uniProjection, 1, false, getProjectionMatrix().getMatrix(), 0);
+			gl.glUniform1f(uniTime, (System.currentTimeMillis() % 86_400_000L) / 1000f);
 
 			gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, 4);
 

@@ -15,9 +15,13 @@ out G_OUT {
     vec3 tsSunDir;
 } gOut;
 
+uniform float texAspectRatio;
+
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+
+uniform float time;
 
 void main() {
     vec4 origo = vec4(vec3(0), 1);
@@ -55,8 +59,12 @@ void main() {
     mat4 viewSpaceToTangentSpace = inverse(view * model * tangentSpaceToModelSpace);
     gOut.tsEyePos = (viewSpaceToTangentSpace * vsEyePos).xyz;
 
-    vec3 vsSunDir = vec3(-1.f, -.25f, -25f);
-    gOut.tsSunDir = normalize((viewSpaceToTangentSpace * vec4(vsSunDir, 0)).xyz);
+//    vec3 wsSunDir = vec3(-1.f, -1.f, 1.f);
+//    mat4 worldSpaceToTangentSpace = inverse(model * tangentSpaceToModelSpace);
+//    gOut.tsSunDir = normalize((worldSpaceToTangentSpace * vec4(wsSunDir, 0)).xyz);
+//    gOut.tsSunDir = vec3(-1f, -1.f, -1.f);
+    float t = time / 3.14159f / 5.f;
+    gOut.tsSunDir = normalize(vec3(cos(t) / texAspectRatio, sin(t), -1.f));
 
     for (int i = 0; i < 3; i++) {
         gl_Position = MVP * vOut[i].pos;
