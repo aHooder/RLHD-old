@@ -1,7 +1,5 @@
 package rs117.hd.utils;
 
-import lombok.RequiredArgsConstructor;
-
 public class TextureView
 {
 	public Type type;
@@ -23,28 +21,6 @@ public class TextureView
 		COLOR_AND_DEPTH,
 		HEIGHT,
 		COLOR_AND_HEIGHT
-	}
-
-	@RequiredArgsConstructor
-	public static class Modifier extends ShaderEnum
-	{
-		private static int n = 0;
-		public static final int COLOR = 1 << n++;
-		public static final int DEPTH = 1 << n++;
-
-		public static final int FLIP_X = 1 << n++;
-		public static final int FLIP_Y = 1 << n++;
-		public static final int FLIP_Z = 1 << n++;
-		public static final int UINT_DEPTH = 1 << n++;
-		public static final int ALPHA_DEPTH = 1 << n++;
-		public static final int GREYSCALE = 1 << n++;
-		public static final int RGB_TO_GREYSCALE = 1 << n++;
-		public static final int RGB_TO_BGR = 1 << n++;
-		public static final int DISABLE_ALPHA = 1 << n++;
-		public static final int PARALLAX = 1 << n++;
-		public static final int RAINBOW = 1 << n++;
-		public static final int TERRAIN = 1 << n++;
-		public static final int INTERPOLATE_DEPTH = 1 << n++;
 	}
 
 	public TextureView(Type type, int width, int height)
@@ -73,7 +49,7 @@ public class TextureView
 	public TextureView setHeightMap(int texture)
 	{
 		depthTexture = texture;
-		addModifiers(Modifier.FLIP_Z);
+		addModifiers(TextureViewer.TextureModifiers.FLIP_Z);
 		return this;
 	}
 

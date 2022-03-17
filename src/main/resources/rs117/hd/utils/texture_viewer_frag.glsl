@@ -10,6 +10,7 @@ in G_OUT {
     vec2 uv;
     vec3 tsEyePos;
     vec3 tsFragPos;
+    vec3 tsSunDir;
 } gOut;
 
 out vec4 fragColor;
@@ -91,10 +92,11 @@ float sampleDepthDirect(vec2 uv) {
     vec4 samp;
     if (hasTexMod(TEXTURE_MODIFIER_UINT_DEPTH)) {
         if (hasTexMod(TEXTURE_MODIFIER_INTERPOLATE_DEPTH)) {
-            samp = (sampleDepthInterpolate(uv) - texDepthMin) / (texDepthMax - texDepthMin);
+            samp = sampleDepthInterpolate(uv);
         } else {
-            samp = (texture(texUDepth, uv) - texDepthMin) / (texDepthMax - texDepthMin);
+            samp = texture(texUDepth, uv);
         }
+        samp = (samp - texDepthMin) / (texDepthMax - texDepthMin);
     } else {
         samp = (texture(texDepth, uv) - texDepthMin) / (texDepthMax - texDepthMin);
     }
@@ -111,24 +113,31 @@ float sampleDepthDirect(vec2 uv) {
     return depth;
 }
 
-float sampleDepth(inout vec2 uv) {
+float sampleDepth(inout vec2 uv, inout float shadowing) {
     if (hasTexMod(TEXTURE_MODIFIER_PARALLAX)) {
         vec3 fragToEye = normalize(gOut.tsEyePos - gOut.tsFragPos);
         vec2 xyPerZ = fragToEye.xy / fragToEye.z;
 
         const int numLayers = 100;
-        float heightScale = texDepthScale;
+        float heightScale = texDepthScale * 5;
 
-        const float depthIncrement = 1.f / numLayers;
-        vec2 deltaUv = xyPerZ * heightScale / numLayers;
-        float layerDepth = 0;
-        float texelDepth = sampleDepthDirect(uv);
-        float prevDepth = texelDepth;
-        while (texelDepth >= layerDepth) { // TODO: compare performance with for loop with & without break
-            layerDepth += depthIncrement;
-            uv -= deltaUv;
-            prevDepth = texelDepth;
-            texelDepth = sampleDepthDirect(uv);
+        if (numLayers > 1) {
+            const float depthIncrement = 1.f / (numLayers - 1);
+            vec2 deltaUv = xyPerZ * heightScale / (numLayers - 1);
+            float layerDepth = 0;
+            float texelDepth = sampleDepthDirect(uv);
+            float prevTexelDepth = texelDepth;
+            while (texelDepth >= layerDepth) { // TODO: compare performance to for loop with & without break
+                layerDepth += depthIncrement;
+                uv -= deltaUv;
+                prevTexelDepth = texelDepth;
+                texelDepth = sampleDepthDirect(uv);
+            }
+
+            float afterDiff = texelDepth - layerDepth;
+            float beforeDiff = prevTexelDepth - (layerDepth - depthIncrement);
+//            uv += deltaUv * clamp(afterDiff / (afterDiff - beforeDiff), 0, 1);
+
         }
 
         if (uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1)
@@ -215,72 +224,31 @@ void main() {
             break;
         }
         case RENDER_PASS_TEXTURE: {
-            bool hasColor = hasTexMod(TEXTURE_MODIFIER_COLOR);
-            bool hasDepth = hasTexMod(TEXTURE_MODIFIER_DEPTH);
-            if (hasColor && hasDepth) {
-                vec2 uv = gOut.uv;
-                float h = sampleDepth(uv);
+            vec2 uv = gOut.uv;
+            bool hasColor = hasTexMod(TEXTURE_MODIFIER_HAS_COLOR);
+            bool hasDepth = hasTexMod(TEXTURE_MODIFIER_HAS_DEPTH);
+            if (!hasDepth) {
+                fragColor = sampleColor(uv);
+            } else {
+                float shadowing = 0;
+                float h = sampleDepth(uv, shadowing);
 
                 if (hasTexMod(TEXTURE_MODIFIER_RAINBOW)) {
                     vec3 color = hsvToRgb(vec3(1 - .66f * h, 1, 1));
                     fragColor = vec4(mix(vec3(0), color, ceil(1 - h)), 1);
                 } else if (hasTexMod(TEXTURE_MODIFIER_TERRAIN)) {
                     fragColor = generateTerrainColor(h, uv);
-                } else {
+                } else if (hasColor) {
                     const float eps = .001f;
                     uv = clamp(uv, vec2(eps), vec2(1 - eps));
                     fragColor = sampleColor(uv);
-                }
-            } else if (hasDepth) {
-                vec2 uv = gOut.uv;
-                float h = sampleDepth(uv);
-
-                if (hasTexMod(TEXTURE_MODIFIER_RAINBOW)) {
-                    vec3 color = hsvToRgb(vec3(1 - .66f * h, 1, 1));
-                    fragColor = vec4(mix(vec3(0), color, ceil(1 - h)), 1);
-                } else if (hasTexMod(TEXTURE_MODIFIER_TERRAIN)) {
-                    fragColor = generateTerrainColor(h, uv);
                 } else {
                     fragColor = vec4(vec3(h), 1);
                 }
-            } else {
-                fragColor = sampleColor(gOut.uv);
+
+                fragColor.rgb *= 1 - shadowing;
             }
             break;
         }
-
-//        case RENDER_PASS_COLOR:
-//            fragColor = sampleColor(gOut.uv);
-//            break;
-//        case RENDER_PASS_DEPTH: {
-//            vec2 uv = gOut.uv;
-//            float h = sampleDepth(uv);
-//
-//            if (hasTexMod(TEXTURE_MODIFIER_RAINBOW)) {
-//                vec3 color = hsvToRgb(vec3(1 - .66f * h, 1, 1));
-//                fragColor = vec4(mix(vec3(0), color, ceil(1 - h)), 1);
-//            } else if (hasTexMod(TEXTURE_MODIFIER_TERRAIN)) {
-//                fragColor = generateTerrainColor(h, uv);
-//            } else {
-//                fragColor = vec4(vec3(h), 1);
-//            }
-//            break;
-//        }
-//        case RENDER_PASS_COLOR_AND_DEPTH: {
-//            vec2 uv = gOut.uv;
-//            float h = sampleDepth(uv);
-//
-//            if (hasTexMod(TEXTURE_MODIFIER_RAINBOW)) {
-//                vec3 color = hsvToRgb(vec3(1 - .66f * h, 1, 1));
-//                fragColor = vec4(mix(vec3(0), color, ceil(1 - h)), 1);
-//            } else if (hasTexMod(TEXTURE_MODIFIER_TERRAIN)) {
-//                fragColor = generateTerrainColor(h, uv);
-//            } else {
-//                const float eps = .001f;
-//                uv = clamp(uv, vec2(eps), vec2(1 - eps));
-//                fragColor = sampleColor(uv);
-//            }
-//            break;
-//        }
     }
 }

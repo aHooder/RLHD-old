@@ -3134,20 +3134,21 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 				.setHeightMap(texHeightMap)
 				.setBackground(TextureViewer.RenderPass.SOLID_OSRS_SEA)
 				.addModifiers(
-					TextureView.Modifier.COLOR |
-					TextureView.Modifier.DEPTH |
-					TextureView.Modifier.UINT_DEPTH |
+					TextureViewer.TextureModifiers.HAS_COLOR |
+					TextureViewer.TextureModifiers.HAS_DEPTH |
+					TextureViewer.TextureModifiers.UINT_DEPTH |
 //					TextureView.Modifier.ALPHA_DEPTH | // if using the same texture for color & height
-					TextureView.Modifier.DISABLE_ALPHA |
-					TextureView.Modifier.PARALLAX |
-					TextureView.Modifier.FLIP_Y |
-					TextureView.Modifier.RGB_TO_BGR)
+					TextureViewer.TextureModifiers.DISABLE_ALPHA |
+					TextureViewer.TextureModifiers.PARALLAX |
+					TextureViewer.TextureModifiers.SHADOWS |
+					TextureViewer.TextureModifiers.FLIP_Y |
+					TextureViewer.TextureModifiers.RGB_TO_BGR)
 				.setDepthBounds(0, 65278)
 				.setDepthScale(0.018f))
 //				.setDepthBounds(0, 13712))
 			.addTexture(new TextureView(TextureView.Type.DEPTH, 1)
 				.setDepthMap(texShadowMap)
-				.addModifiers(TextureView.Modifier.RAINBOW)
+				.addModifiers(TextureViewer.TextureModifiers.RAINBOW)
 				.setDepthBounds(.4f, .6f))
 //			.setSize(512, 512)
 			.setSize(Math.round(heightMapWidth / tilesPerPixel), Math.round(heightMapHeight / tilesPerPixel))
@@ -3282,10 +3283,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 	}
 
 	@Override
-	public void keyTyped(KeyEvent e)
-	{
-
-	}
+	public void keyTyped(KeyEvent e) {}
 
 	@Override
 	public void keyPressed(KeyEvent e)
@@ -3305,8 +3303,5 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 	}
 
 	@Override
-	public void keyReleased(KeyEvent e)
-	{
-
-	}
+	public void keyReleased(KeyEvent e) {}
 }

@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.OSType;
 import static rs117.hd.GLUtil.glDeleteBuffer;
@@ -80,12 +81,36 @@ public class TextureViewer implements KeyListener, MouseListener
 	{
 		// FIXME: apparently Java won't let you write switch statements with these...
 		private static int n = 0;
+		// TOOD: replace colorsr with SOLID_COLOR & uniform vec4
 		public static final int SOLID_AUTO = n++;
 		public static final int SOLID_BLACK = n++;
 		public static final int SOLID_OSRS_SEA = n++;
 		public static final int PATTERN_CHECKER = n++;
 		public static final int PATTERN_MISSING = n++;
 		public static final int TEXTURE = n++;
+	}
+
+	@RequiredArgsConstructor
+	public static class TextureModifiers extends ShaderEnum
+	{
+		private static int n = 0;
+		public static final int HAS_COLOR = 1 << n++;
+		public static final int HAS_DEPTH = 1 << n++;
+
+		public static final int FLIP_X = 1 << n++;
+		public static final int FLIP_Y = 1 << n++;
+		public static final int FLIP_Z = 1 << n++;
+		public static final int UINT_DEPTH = 1 << n++;
+		public static final int ALPHA_DEPTH = 1 << n++;
+		public static final int GREYSCALE = 1 << n++;
+		public static final int RGB_TO_GREYSCALE = 1 << n++;
+		public static final int RGB_TO_BGR = 1 << n++;
+		public static final int DISABLE_ALPHA = 1 << n++;
+		public static final int PARALLAX = 1 << n++;
+		public static final int RAINBOW = 1 << n++;
+		public static final int TERRAIN = 1 << n++;
+		public static final int INTERPOLATE_DEPTH = 1 << n++;
+		public static final int SHADOWS = 1 << n++;
 	}
 
 	private static final float[] IDENTITY_MAT4 = new Matrix4().getMatrix();
@@ -131,7 +156,7 @@ public class TextureViewer implements KeyListener, MouseListener
 							case "RENDER_PASS":
 								return ShaderEnum.generateDefines(key, RenderPass.class);
 							case "TEXTURE_MODIFIER":
-								return ShaderEnum.generateDefines(key, TextureView.Modifier.class);
+								return ShaderEnum.generateDefines(key, TextureModifiers.class);
 						}
 					}
 					return null;
@@ -487,7 +512,7 @@ public class TextureViewer implements KeyListener, MouseListener
 					gl.glActiveTexture(GL_TEXTURE1);
 					gl.glBindTexture(GL_TEXTURE_2D, depth);
 					gl.glUniform1i(
-						texture.hasModifiers(TextureView.Modifier.UINT_DEPTH) ?
+						texture.hasModifiers(TextureModifiers.UINT_DEPTH) ?
 						uniUDepthTexture : uniDepthTexture, 1);
 				}
 
@@ -636,30 +661,30 @@ public class TextureViewer implements KeyListener, MouseListener
 		switch (e.getKeySymbol())
 		{
 			case 'C': // Enable color mode
-				textureModifiers ^= TextureView.Modifier.COLOR;
+				textureModifiers ^= TextureModifiers.HAS_COLOR;
 				break;
 			case 'D': // Enable depth mode
 				if (e.isControlDown()) {
-					if ((textureModifiers & TextureView.Modifier.RAINBOW) != 0) {
-						textureModifiers ^= TextureView.Modifier.RAINBOW;
-						textureModifiers ^= TextureView.Modifier.TERRAIN;
-					} else if ((textureModifiers & TextureView.Modifier.TERRAIN) != 0) {
-						textureModifiers ^= TextureView.Modifier.TERRAIN;
+					if ((textureModifiers & TextureModifiers.RAINBOW) != 0) {
+						textureModifiers ^= TextureModifiers.RAINBOW;
+						textureModifiers ^= TextureModifiers.TERRAIN;
+					} else if ((textureModifiers & TextureModifiers.TERRAIN) != 0) {
+						textureModifiers ^= TextureModifiers.TERRAIN;
 					} else {
-						textureModifiers ^= TextureView.Modifier.RAINBOW;
+						textureModifiers ^= TextureModifiers.RAINBOW;
 					}
 				} else {
-					textureModifiers ^= TextureView.Modifier.DEPTH;
+					textureModifiers ^= TextureModifiers.HAS_DEPTH;
 				}
 				break;
 			case 'G': // Toggle greyscale
-				textureModifiers ^= TextureView.Modifier.GREYSCALE;
+				textureModifiers ^= TextureModifiers.GREYSCALE;
 				break;
 			case 'P': // Toggle height map parallax
-				textureModifiers ^= TextureView.Modifier.PARALLAX;
+				textureModifiers ^= TextureModifiers.PARALLAX;
 				break;
 			case 'T': // Toggle transparency
-				textureModifiers ^= TextureView.Modifier.DISABLE_ALPHA;
+				textureModifiers ^= TextureModifiers.DISABLE_ALPHA;
 				break;
 			case 'B': // Cycle between different backgrounds
 				backgroundPass = Math.floorMod(backgroundPass + 1, RenderPass.PATTERN_CHECKER + 1);
@@ -669,7 +694,7 @@ public class TextureViewer implements KeyListener, MouseListener
 				}
 				break;
 			case 'I':
-				textureModifiers ^= TextureView.Modifier.INTERPOLATE_DEPTH;
+				textureModifiers ^= TextureModifiers.INTERPOLATE_DEPTH;
 				break;
 			case 'A': // Toggle always on top
 				alwaysOnTop = !alwaysOnTop;

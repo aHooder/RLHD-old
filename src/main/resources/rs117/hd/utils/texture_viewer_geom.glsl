@@ -12,6 +12,7 @@ out G_OUT {
     vec2 uv;
     vec3 tsEyePos;
     vec3 tsFragPos;
+    vec3 tsSunDir;
 } gOut;
 
 uniform mat4 model;
@@ -53,6 +54,9 @@ void main() {
 
     mat4 viewSpaceToTangentSpace = inverse(view * model * tangentSpaceToModelSpace);
     gOut.tsEyePos = (viewSpaceToTangentSpace * vsEyePos).xyz;
+
+    vec3 vsSunDir = vec3(-1.f, -.25f, -25f);
+    gOut.tsSunDir = normalize((viewSpaceToTangentSpace * vec4(vsSunDir, 0)).xyz);
 
     for (int i = 0; i < 3; i++) {
         gl_Position = MVP * vOut[i].pos;
