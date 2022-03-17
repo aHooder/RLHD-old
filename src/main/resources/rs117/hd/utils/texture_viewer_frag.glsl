@@ -115,6 +115,8 @@ float sampleDepthDirect(vec2 uv) {
 
 float sampleDepth(inout vec2 uv, inout float shadowing) {
     if (hasTexMod(TEXTURE_MODIFIER_PARALLAX)) {
+        const float eps = .0011f;
+
         vec3 fragToEye = normalize(gOut.tsEyePos - gOut.tsFragPos);
         vec2 xyPerZ = fragToEye.xy / fragToEye.z;
 
@@ -159,19 +161,17 @@ float sampleDepth(inout vec2 uv, inout float shadowing) {
                     texelDepth = sampleDepthDirect(localuv);
                 }
 
-                if (texelDepth > layerDepth) {
-                    shadowing = 0;
-                } else {
+                if (texelDepth <= layerDepth &&
+                    localuv.x > eps && localuv.x < 1 - eps &&
+                    localuv.y > eps && localuv.y < 1 - eps) {
                     shadowing = .5f;
+                } else {
+                    shadowing = 0;
                 }
-
-                // We are now above the height map again
-                // If the final texelDepth is higher
-
             }
         }
 
-        if (uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1)
+        if (uv.x < eps || uv.y < eps || uv.x > 1 - eps || uv.y > 1 - eps)
             discard;
     }
 

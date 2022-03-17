@@ -1435,7 +1435,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks, KeyListener
 		gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
 		// Integer texture
-		int[] color = { 0, 0, 0, 1 };
+		int[] color = { 0, 0, 0, 65536 };
 		gl.glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color, 0);
 		gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
