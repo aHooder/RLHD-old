@@ -119,7 +119,7 @@ float sampleDepth(inout vec2 uv, inout float shadowing) {
         vec2 xyPerZ = fragToEye.xy / fragToEye.z;
 
         const int numLayers = 100;
-        float heightScale = texDepthScale * 5;
+        float heightScale = texDepthScale;
 
         if (numLayers > 1) {
             const float depthIncrement = 1.f / (numLayers - 1);
