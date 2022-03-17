@@ -219,6 +219,9 @@ public class TextureViewer implements KeyListener, MouseListener
 	private int backgroundPass = RenderPass.PATTERN_CHECKER;
 	private int renderPass = RenderPass.PATTERN_MISSING;
 	private int textureModifiers = 0;
+	private boolean timePaused = false;
+	private float time = 0;
+	private long prevFrameMillis = System.currentTimeMillis();
 
 	private final Matrix4 modelMatrix = new Matrix4();
 	private final Matrix4 viewMatrix = new Matrix4();
@@ -443,6 +446,8 @@ public class TextureViewer implements KeyListener, MouseListener
 				window.setVisible(visible);
 			}
 
+			prevFrameMillis = System.currentTimeMillis();
+
 			if (visible)
 			{
 				hdPlugin.addRenderHook(renderHook);
@@ -479,6 +484,13 @@ public class TextureViewer implements KeyListener, MouseListener
 
 		if (glProgram != -1)
 		{
+			float deltaTime = (System.currentTimeMillis() - prevFrameMillis) / 1000f;
+			prevFrameMillis = System.currentTimeMillis();
+			if (!timePaused)
+			{
+				time = (time + deltaTime) % 86393.79797371931f; // repeat roughly every 24 hours, divisible by pi
+			}
+
 			gl.glUseProgram(glProgram);
 
 			gl.glDisable(GL_DEPTH_TEST);
@@ -540,7 +552,7 @@ public class TextureViewer implements KeyListener, MouseListener
 			gl.glUniformMatrix4fv(uniModel, 1, false, modelMatrix.getMatrix(), 0);
 			gl.glUniformMatrix4fv(uniView, 1, false, viewMatrix.getMatrix(), 0);
 			gl.glUniformMatrix4fv(uniProjection, 1, false, getProjectionMatrix().getMatrix(), 0);
-			gl.glUniform1f(uniTime, (System.currentTimeMillis() % 86_400_000L) / 1000f);
+			gl.glUniform1f(uniTime, time);
 
 			gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, 4);
 
@@ -716,6 +728,9 @@ public class TextureViewer implements KeyListener, MouseListener
 				break;
 			case KeyEvent.VK_RIGHT:
 				cycleTextures(1);
+				break;
+			case KeyEvent.VK_SPACE:
+				timePaused = !timePaused;
 				break;
 		}
 
