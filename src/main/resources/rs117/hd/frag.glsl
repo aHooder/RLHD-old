@@ -835,6 +835,9 @@ void main() {
             vec3 c = texture(waterReflectionMap, uv).rgb;
 
             surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
+
+            shadow *= (1 - finalFresnel);
+            inverseShadow = (1 - shadow);
         }
     }
     vec3 surfaceColorOut = surfaceColor * max(combinedSpecularStrength, 0.2);
