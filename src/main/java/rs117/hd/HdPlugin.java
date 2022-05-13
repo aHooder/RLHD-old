@@ -34,6 +34,7 @@ import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.DrawCallbacks;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -222,6 +223,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 	private int fboWaterReflection = -1;
 	private int texWaterReflection = -1;
+	private int texWaterReflectionDepthMap = -1;
 
 	// scene vertex buffer
 	private final GLBuffer sceneVertexBuffer = new GLBuffer();
@@ -1092,12 +1094,27 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		if (err != 0)
 	 		throw new RuntimeException("gl Error: " + err);
 
-		float[] color = { 0, 0, 0, 1 };
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+		float[] borderColor = { 0, 0, 0, 1 };
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
 		// Bind texture
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texWaterReflection, 0);
 		glReadBuffer(GL_NONE);
+
+		// Create texture
+		texWaterReflectionDepthMap = glGenTexture(gl);
+		gl.glBindTexture(gl.GL_TEXTURE_2D, texWaterReflectionDepthMap);
+		gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT16, width, height, 0, gl.GL_DEPTH_COMPONENT, gl.GL_UNSIGNED_SHORT, null);
+		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST);
+		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST);
+		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_BORDER);
+		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_BORDER);
+
+		float[] depthBorder = { 1, 1, 1, 1 };
+		gl.glTexParameterfv(GL_TEXTURE_2D, gl.GL_TEXTURE_BORDER_COLOR, depthBorder, 0);
+
+		// Bind texture
+		gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_2D, texWaterReflectionDepthMap, 0);
 
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
@@ -1122,6 +1139,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		{
 			glDeleteTextures(texWaterReflection);
 			texWaterReflection = -1;
+		}
+
+		if (texWaterReflectionDepthMap != -1)
+		{
+			glDeleteTexture(gl, texWaterReflectionDepthMap);
+			texWaterReflectionDepthMap = -1;
 		}
 
 		if (fboWaterReflection != -1)
@@ -1670,6 +1693,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				// render shadow depth map
 				glViewport(0, 0, config.shadowResolution().getValue(), config.shadowResolution().getValue());
 				glBindFramebuffer(GL_FRAMEBUFFER, fboShadowMap);
+				glClearDepth(1);
 				glClear(GL_DEPTH_BUFFER_BIT);
 
 				glUseProgram(glShadowProgram);
@@ -1706,6 +1730,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 				glEnable(GL_CULL_FACE);
 				glEnable(GL_DEPTH_TEST);
+				glDepthFunc(GL_LESS);
 
 				// Draw buffers
 				glBindVertexArray(vaoHandle);
@@ -1942,9 +1967,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			if (fboWaterReflection == -1)
 				throw new RuntimeException("Water reflections will crash atm if AA is not enabled");
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
-			glClear(GL_COLOR_BUFFER_BIT);
+			glClearDepth(1);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDisable(GL_CULL_FACE);
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_LESS);
 			glUniform1i(uniRenderPass, 1);
 			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
+
+			// Reset
+			glDisable(GL_DEPTH_TEST);
+			glEnable(GL_CULL_FACE);
 
 			glActiveTexture(GL_TEXTURE4);
 			glBindTexture(GL_TEXTURE_2D, texWaterReflection);
