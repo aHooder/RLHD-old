@@ -2338,6 +2338,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	{
 		model.calculateBoundsCylinder();
 
+		// TODO: fix visibility checks for shadows and water reflection
+		if (true)
+			return true;
+
 		final int XYZMag = model.getXYZMag();
 		final int bottomY = model.getBottomY();
 		final int zoom = (configShadowsEnabled && configExpandShadowDraw) ? client.get3dZoom() / 2 : client.get3dZoom();
