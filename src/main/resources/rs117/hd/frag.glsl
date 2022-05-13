@@ -70,6 +70,7 @@ layout(std140) uniform pointLights {
 };
 
 uniform sampler2D shadowMap;
+uniform sampler2D waterReflectionMap;
 
 uniform sampler2DArray texturesHD;
 uniform vec2 textureOffsets[128];
@@ -807,7 +808,18 @@ void main() {
         }
         else
         {
-            surfaceColor = mix(waterColorMid, waterColorLight, (finalFresnel - 0.5) * 2);
+            const vec3 baseWaterColor = vec3(.722, .839, 1) / 3;
+
+            vec3 I = viewDir; // incident
+            vec3 N = normals.xyz; // normal
+
+            // TODO: use actual viewport size here
+            ivec2 screenSize = textureSize(waterReflectionMap, 0);
+            vec2 uv = gl_FragCoord.xy / vec2(screenSize);
+            uv.y = 1 - uv.y;
+            vec3 c = texture(waterReflectionMap, uv).rgb;
+
+            surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
         }
     }
     vec3 surfaceColorOut = surfaceColor * max(combinedSpecularStrength, 0.2);
