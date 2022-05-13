@@ -297,6 +297,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int viewportOffsetY;
 
 	// Uniforms
+	private int uniRenderPass;
 	private int uniColorBlindMode;
 	private int uniUiColorBlindMode;
 	private int uniUseFog;
@@ -732,40 +733,41 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 	private void initUniforms()
 	{
-		uniProjectionMatrix = glGetUniformLocation(glProgram, "projectionMatrix");
-		uniLightProjectionMatrix = glGetUniformLocation(glProgram, "lightProjectionMatrix");
-		uniShadowMap = glGetUniformLocation(glProgram, "shadowMap");
-		uniWaterReflectionMap = glGetUniformLocation(glProgram, "waterReflectionMap");
-		uniSaturation = glGetUniformLocation(glProgram, "saturation");
-		uniContrast = glGetUniformLocation(glProgram, "contrast");
-		uniUseFog = glGetUniformLocation(glProgram, "useFog");
-		uniFogColor = glGetUniformLocation(glProgram, "fogColor");
-		uniFogDepth = glGetUniformLocation(glProgram, "fogDepth");
-		uniWaterColorLight = glGetUniformLocation(glProgram, "waterColorLight");
-		uniWaterColorMid = glGetUniformLocation(glProgram, "waterColorMid");
-		uniWaterColorDark = glGetUniformLocation(glProgram, "waterColorDark");
-		uniDrawDistance = glGetUniformLocation(glProgram, "drawDistance");
-		uniAmbientStrength = glGetUniformLocation(glProgram, "ambientStrength");
-		uniAmbientColor = glGetUniformLocation(glProgram, "ambientColor");
-		uniLightStrength = glGetUniformLocation(glProgram, "lightStrength");
-		uniLightColor = glGetUniformLocation(glProgram, "lightColor");
-		uniUnderglowStrength = glGetUniformLocation(glProgram, "underglowStrength");
-		uniUnderglowColor = glGetUniformLocation(glProgram, "underglowColor");
-		uniGroundFogStart = glGetUniformLocation(glProgram, "groundFogStart");
-		uniGroundFogEnd = glGetUniformLocation(glProgram, "groundFogEnd");
-		uniGroundFogOpacity = glGetUniformLocation(glProgram, "groundFogOpacity");
-		uniLightningBrightness = glGetUniformLocation(glProgram, "lightningBrightness");
-		uniPointLightsCount = glGetUniformLocation(glProgram, "pointLightsCount");
-		uniColorBlindMode = glGetUniformLocation(glProgram, "colorBlindMode");
-		uniLightX = glGetUniformLocation(glProgram, "lightX");
-		uniLightY = glGetUniformLocation(glProgram, "lightY");
-		uniLightZ = glGetUniformLocation(glProgram, "lightZ");
-		uniShadowMaxBias = glGetUniformLocation(glProgram, "shadowMaxBias");
-		uniShadowsEnabled = glGetUniformLocation(glProgram, "shadowsEnabled");
-		uniUnderwaterEnvironment = glGetUniformLocation(glProgram, "underwaterEnvironment");
-		uniUnderwaterCaustics = glGetUniformLocation(glProgram, "underwaterCaustics");
-		uniUnderwaterCausticsColor = glGetUniformLocation(glProgram, "underwaterCausticsColor");
-		uniUnderwaterCausticsStrength = glGetUniformLocation(glProgram, "underwaterCausticsStrength");
+		uniRenderPass = gl.glGetUniformLocation(glProgram, "renderPass");
+		uniProjectionMatrix = gl.glGetUniformLocation(glProgram, "projectionMatrix");
+		uniLightProjectionMatrix = gl.glGetUniformLocation(glProgram, "lightProjectionMatrix");
+		uniShadowMap = gl.glGetUniformLocation(glProgram, "shadowMap");
+		uniWaterReflectionMap = gl.glGetUniformLocation(glProgram, "waterReflectionMap");
+		uniSaturation = gl.glGetUniformLocation(glProgram, "saturation");
+		uniContrast = gl.glGetUniformLocation(glProgram, "contrast");
+		uniUseFog = gl.glGetUniformLocation(glProgram, "useFog");
+		uniFogColor = gl.glGetUniformLocation(glProgram, "fogColor");
+		uniFogDepth = gl.glGetUniformLocation(glProgram, "fogDepth");
+		uniWaterColorLight = gl.glGetUniformLocation(glProgram, "waterColorLight");
+		uniWaterColorMid = gl.glGetUniformLocation(glProgram, "waterColorMid");
+		uniWaterColorDark = gl.glGetUniformLocation(glProgram, "waterColorDark");
+		uniDrawDistance = gl.glGetUniformLocation(glProgram, "drawDistance");
+		uniAmbientStrength = gl.glGetUniformLocation(glProgram, "ambientStrength");
+		uniAmbientColor = gl.glGetUniformLocation(glProgram, "ambientColor");
+		uniLightStrength = gl.glGetUniformLocation(glProgram, "lightStrength");
+		uniLightColor = gl.glGetUniformLocation(glProgram, "lightColor");
+		uniUnderglowStrength = gl.glGetUniformLocation(glProgram, "underglowStrength");
+		uniUnderglowColor = gl.glGetUniformLocation(glProgram, "underglowColor");
+		uniGroundFogStart = gl.glGetUniformLocation(glProgram, "groundFogStart");
+		uniGroundFogEnd = gl.glGetUniformLocation(glProgram, "groundFogEnd");
+		uniGroundFogOpacity = gl.glGetUniformLocation(glProgram, "groundFogOpacity");
+		uniLightningBrightness = gl.glGetUniformLocation(glProgram, "lightningBrightness");
+		uniPointLightsCount = gl.glGetUniformLocation(glProgram, "pointLightsCount");
+		uniColorBlindMode = gl.glGetUniformLocation(glProgram, "colorBlindMode");
+		uniLightX = gl.glGetUniformLocation(glProgram, "lightX");
+		uniLightY = gl.glGetUniformLocation(glProgram, "lightY");
+		uniLightZ = gl.glGetUniformLocation(glProgram, "lightZ");
+		uniShadowMaxBias = gl.glGetUniformLocation(glProgram, "shadowMaxBias");
+		uniShadowsEnabled = gl.glGetUniformLocation(glProgram, "shadowsEnabled");
+		uniUnderwaterEnvironment = gl.glGetUniformLocation(glProgram, "underwaterEnvironment");
+		uniUnderwaterCaustics = gl.glGetUniformLocation(glProgram, "underwaterCaustics");
+		uniUnderwaterCausticsColor = gl.glGetUniformLocation(glProgram, "underwaterCausticsColor");
+		uniUnderwaterCausticsStrength = gl.glGetUniformLocation(glProgram, "underwaterCausticsStrength");
 
 		uniTex = glGetUniformLocation(glUiProgram, "tex");
 		uniTexSamplingMode = glGetUniformLocation(glUiProgram, "samplingMode");
@@ -1941,6 +1943,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				throw new RuntimeException("Water reflections will crash atm if AA is not enabled");
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
 			glClear(GL_COLOR_BUFFER_BIT);
+			glUniform1i(uniRenderPass, 1);
 			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
 			glActiveTexture(GL_TEXTURE4);
@@ -1958,6 +1961,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			// TODO: this assumes AA is always enabled
 			glEnable(GL_MULTISAMPLE);
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
+			glUniform1i(uniRenderPass, 0);
 			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
 			glDisable(GL_BLEND);

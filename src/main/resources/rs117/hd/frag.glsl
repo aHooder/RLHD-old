@@ -72,6 +72,10 @@ layout(std140) uniform pointLights {
 uniform sampler2D shadowMap;
 uniform sampler2D waterReflectionMap;
 
+uniform int renderPass;
+#define RENDER_PASS_MAIN 0
+#define RENDER_PASS_WATER_REFLECTION 1
+
 uniform sampler2DArray texturesHD;
 uniform vec2 textureOffsets[128];
 uniform float animationCurrent;
@@ -223,6 +227,9 @@ void main() {
 
     if (isWater)
     {
+        if (renderPass == 1)
+            discard;
+
         if (diffuseMapId1 >= 7000 || diffuseMapId2 >= 7000 || diffuseMapId3 >= 7000)
         {
             simpleWater = false;
@@ -312,6 +319,9 @@ void main() {
     if (underwaterType != 0)
     {
         isUnderwater = true;
+
+        if (renderPass == 1)
+            discard;
 
         if (underwaterType == WATER)
         {
@@ -817,7 +827,11 @@ void main() {
             ivec2 screenSize = textureSize(waterReflectionMap, 0);
             vec2 uv = gl_FragCoord.xy / vec2(screenSize);
             uv.y = 1 - uv.y;
-            uv.x += N.x / 10;
+            vec3 norm1 = diffuse1.xyz * 2 - 1;
+            vec3 norm2 = diffuse2.xyz * 2 - 1;
+            vec3 distortion = normalize((norm1 - norm2) * waterNormalStrength);
+            uv += distortion.xy / 250;
+            uv = clamp(uv, 0, 1);
             vec3 c = texture(waterReflectionMap, uv).rgb;
 
             surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
