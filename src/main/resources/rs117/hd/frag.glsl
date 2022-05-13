@@ -830,7 +830,7 @@ void main() {
             vec3 norm1 = diffuse1.xyz * 2 - 1;
             vec3 norm2 = diffuse2.xyz * 2 - 1;
             vec3 distortion = normalize((norm1 - norm2) * waterNormalStrength);
-            uv += distortion.xy / 250;
+            uv += distortion.xz / 1000;
             uv = clamp(uv, 0, 1);
             vec3 c = texture(waterReflectionMap, uv).rgb;
 
@@ -919,7 +919,7 @@ void main() {
             vec3 caustics = sampleCaustics(flow1, flow2, .005);
 
             vec3 causticsColor = underwaterCausticsColor * underwaterCausticsStrength;
-            compositeColor *= 1 + caustics * causticsColor * depthMultiplier * lightDotNormals * lightStrength;
+            compositeColor *= 1 + caustics * causticsColor * depthMultiplier * lightDotNormals * lightStrength * (1 - finalFresnel);
         }
     }
 
