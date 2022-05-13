@@ -817,6 +817,7 @@ void main() {
             ivec2 screenSize = textureSize(waterReflectionMap, 0);
             vec2 uv = gl_FragCoord.xy / vec2(screenSize);
             uv.y = 1 - uv.y;
+            uv.x += N.x / 10;
             vec3 c = texture(waterReflectionMap, uv).rgb;
 
             surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
