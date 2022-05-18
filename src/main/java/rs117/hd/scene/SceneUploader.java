@@ -77,6 +77,7 @@ class SceneUploader
 	public int sceneId = new Random().nextInt();
 	private int offset;
 	private int uvoffset;
+	public int waterHeight;
 
 	public void upload(Scene scene, GpuIntBuffer vertexBuffer, GpuFloatBuffer uvBuffer, GpuFloatBuffer normalBuffer)
 	{
@@ -382,6 +383,9 @@ class SceneUploader
 				{
 					neColor = 0;
 				}
+
+				// set water height for reflections
+				waterHeight = swHeight;
 			}
 			else if (hdPlugin.configGroundBlending && !proceduralGenerator.useDefaultColor(tile) && sceneTilePaint.getTexture() == -1)
 			{

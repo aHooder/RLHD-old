@@ -1955,12 +1955,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glVertexAttribPointer(2, 4, GL_FLOAT, false, 0, 0);
 
 			// Calculate water reflection projection matrix
+			int waterHeight = sceneUploader.waterHeight;
 			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 			Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
 			Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
 			Mat4.mul(projectionMatrix, Mat4.rotateY((float) (yaw * Perspective.UNIT)));
-			Mat4.mul(projectionMatrix, Mat4.translate(-client.getCameraX2(), client.getCameraY2() /* TODO: assumes sea level is zero */, -client.getCameraZ2()));
+			Mat4.mul(projectionMatrix, Mat4.translate(-client.getCameraX2(), -(client.getCameraY2() + (sceneUploader.waterHeight - client.getCameraY2()) *2), -client.getCameraZ2()));
 			glUniformMatrix4fv(uniProjectionMatrix, false, projectionMatrix);
+
 
 			// TODO: this assumes AA is always enabled
 			glDisable(GL_MULTISAMPLE);
