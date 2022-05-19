@@ -26,6 +26,7 @@
 package rs117.hd.scene;
 
 import com.google.common.base.Stopwatch;
+import java.util.Arrays;
 import java.util.Random;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -77,6 +78,11 @@ class SceneUploader
 	public int sceneId = new Random().nextInt();
 	private int offset;
 	private int uvoffset;
+
+	// Array for mapping the heights of water tiles in the scene to inform the reflection texture position
+	int[] waterHeightCounters = new int[20000];
+
+	// Final int for water reflection texture height
 	public int waterHeight;
 
 	public void upload(Scene scene, GpuIntBuffer vertexBuffer, GpuFloatBuffer uvBuffer, GpuFloatBuffer normalBuffer)
@@ -89,6 +95,9 @@ class SceneUploader
 		vertexBuffer.clear();
 		uvBuffer.clear();
 		normalBuffer.clear();
+
+		// Reset water-height-frequency counting array to avoid stale data
+		Arrays.fill(waterHeightCounters, 0);
 
 		for (int z = 0; z < Constants.MAX_Z; ++z)
 		{
@@ -105,8 +114,17 @@ class SceneUploader
 			}
 		}
 
+		//Loop through water height index, find most common value and set to waterHeight which can be read by the shader
+		int largestIndex = 0;
+		for (int i = 0; i < waterHeightCounters.length; i++)
+		{
+			if ( waterHeightCounters[i] > waterHeightCounters[largestIndex] ) largestIndex = i;
+		}
+		waterHeight = largestIndex - (largestIndex*2);
+
 		stopwatch.stop();
 		log.debug("Scene upload time: {}", stopwatch);
+		//log.debug("Water Array: {}", waterHeightCounters);
 	}
 
 	private void uploadModel(Model model, GpuIntBuffer vertexBuffer, GpuFloatBuffer uvBuffer, GpuFloatBuffer normalBuffer, int tileZ, int tileX, int tileY, ObjectProperties objectProperties, ObjectType objectType)
@@ -384,8 +402,8 @@ class SceneUploader
 					neColor = 0;
 				}
 
-				// set water height for reflections
-				waterHeight = swHeight;
+				// Increment the corresponding water height value in array which tracks frequency
+				waterHeightCounters[Math.abs(swHeight)] +=1;
 			}
 			else if (hdPlugin.configGroundBlending && !proceduralGenerator.useDefaultColor(tile) && sceneTilePaint.getTexture() == -1)
 			{
