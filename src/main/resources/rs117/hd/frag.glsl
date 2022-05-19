@@ -147,6 +147,7 @@ void main() {
     vec3 downDir = normalize(vec3(0, -1.0, 0));
     vec3 viewDir = normalize(camPos - position);
     vec3 lightDir = normalize(vec3(lightX, lightY, lightZ));
+    vec3 normals = normalize(normals);
 
     // material data
     Material material1 = fetchMaterial(materialId.x);
@@ -228,7 +229,7 @@ void main() {
 
     if (isWater)
     {
-        if (renderPass == 1)
+        if (renderPass == RENDER_PASS_WATER_REFLECTION && normals.y >= 0.66 && normals.Y <=1.00)
             discard;
 
         if (diffuseMapId1 >= 7000 || diffuseMapId2 >= 7000 || diffuseMapId3 >= 7000)
@@ -619,7 +620,6 @@ void main() {
     float emissive = emissive1 * texBlend[0] + emissive2 * texBlend[1] + emissive3 * texBlend[2];
 
     // normals
-    vec3 normals = normalize(normals);
     if (isWater)
     {
         vec3 norm1 = -vec3((diffuse1.x * 2 - 1) * waterNormalStrength, diffuse1.z, (diffuse1.y * 2 - 1) * waterNormalStrength);
