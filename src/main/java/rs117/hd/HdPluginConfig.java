@@ -544,4 +544,13 @@ public interface HdPluginConfig extends Config
 			section = experimentalSettings
 	)
 	default boolean disableModelBatching() { return false; }
+
+	@ConfigItem(
+			keyName = "planarReflections",
+			name = "Planar Reflections",
+			description = "Render a highly detailed reflection of the game world on bodies of water. EXPENSIVE and WIP.",
+			position = 403,
+			section = experimentalSettings
+	)
+	default boolean enablePlanarReflections() { return false; }
 }
