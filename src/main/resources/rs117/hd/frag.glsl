@@ -229,7 +229,7 @@ void main() {
 
     if (isWater)
     {
-        if (renderPass == RENDER_PASS_WATER_REFLECTION && normals.y >= 0.66 && normals.y <=1.00)
+        if (renderPass == RENDER_PASS_WATER_REFLECTION)
             discard;
 
         if (diffuseMapId1 >= 7000 || diffuseMapId2 >= 7000 || diffuseMapId3 >= 7000)
