@@ -100,6 +100,7 @@ uniform float lightY;
 uniform float lightZ;
 uniform float shadowMaxBias;
 uniform int shadowsEnabled;
+uniform int waterHeight;
 uniform bool underwaterEnvironment;
 uniform bool underwaterCaustics;
 uniform vec3 underwaterCausticsColor;
@@ -832,7 +833,9 @@ void main() {
             vec3 distortion = normalize((norm1 - norm2) * waterNormalStrength);
             uv += distortion.xz / 1000;
             uv = clamp(uv, 0, 1);
-            vec3 c = texture(waterReflectionMap, uv).rgb;
+
+            vec3 c = waterHeight == position.y ?
+                texture(waterReflectionMap, uv).rgb : waterColorLight;
 
             surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
 
