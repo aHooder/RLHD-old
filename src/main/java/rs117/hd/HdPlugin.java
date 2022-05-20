@@ -1077,18 +1077,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_RGBA, width, height);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneHandle);
 
-		// Create and bind the FBO
-		fboWaterReflection = glGenFramebuffers();
-		glBindFramebuffer(GL_FRAMEBUFFER, fboWaterReflection);
+		if(config.enablePlanarReflections())
+		{
+			fboWaterReflection = glGenFramebuffers();
+			glBindFramebuffer(GL_FRAMEBUFFER, fboWaterReflection);
 
-		// Create texture
-		texWaterReflection = glGenTextures();
-		glBindTexture(GL_TEXTURE_2D, texWaterReflection);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+			// Create texture
+			texWaterReflection = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D, texWaterReflection);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		}
 
 		int err = glGetError();
 		if (err != 0)
@@ -1102,19 +1104,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		glReadBuffer(GL_NONE);
 
 		// Create texture
-		texWaterReflectionDepthMap = glGenTexture(gl);
-		gl.glBindTexture(gl.GL_TEXTURE_2D, texWaterReflectionDepthMap);
-		gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT16, width, height, 0, gl.GL_DEPTH_COMPONENT, gl.GL_UNSIGNED_SHORT, null);
-		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST);
-		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST);
-		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_BORDER);
-		gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_BORDER);
+		texWaterReflectionDepthMap = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, texWaterReflectionDepthMap);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, null);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
 		float[] depthBorder = { 1, 1, 1, 1 };
-		gl.glTexParameterfv(GL_TEXTURE_2D, gl.GL_TEXTURE_BORDER_COLOR, depthBorder, 0);
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, depthBorder, 0);
 
 		// Bind texture
-		gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_2D, texWaterReflectionDepthMap, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texWaterReflectionDepthMap, 0);
 
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
@@ -1143,7 +1145,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 		if (texWaterReflectionDepthMap != -1)
 		{
-			glDeleteTexture(gl, texWaterReflectionDepthMap);
+			glDeleteTextures(texWaterReflectionDepthMap);
 			texWaterReflectionDepthMap = -1;
 		}
 
@@ -1955,37 +1957,46 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glVertexAttribPointer(2, 4, GL_FLOAT, false, 0, 0);
 
 			// Calculate water reflection projection matrix
-			int waterHeight = sceneUploader.waterHeight;
-			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
-			Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
-			Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
-			Mat4.mul(projectionMatrix, Mat4.rotateY((float) (yaw * Perspective.UNIT)));
-			Mat4.mul(projectionMatrix, Mat4.translate(-client.getCameraX2(), -(client.getCameraY2() + (sceneUploader.waterHeight - client.getCameraY2()) *2), -client.getCameraZ2()));
-			glUniformMatrix4fv(uniProjectionMatrix, false, projectionMatrix);
+			float[] projectionMatrix;
+
+			if (config.enablePlanarReflections())
+			{
+				int waterHeight = sceneUploader.waterHeight;
+				float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
+				Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
+				Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
+				Mat4.mul(projectionMatrix, Mat4.rotateY((float) (yaw * Perspective.UNIT)));
+				Mat4.mul(projectionMatrix, Mat4.translate(-client.getCameraX2(), -(client.getCameraY2() + (sceneUploader.waterHeight - client.getCameraY2()) *2), -client.getCameraZ2()));
+				glUniformMatrix4fv(uniProjectionMatrix, false, projectionMatrix);
 
 
-			// TODO: this assumes AA is always enabled
-			glDisable(GL_MULTISAMPLE);
-			if (fboWaterReflection == -1)
-				throw new RuntimeException("Water reflections will crash atm if AA is not enabled");
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
-			glClearDepth(1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glDisable(GL_CULL_FACE);
-			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(GL_LESS);
-			glUniform1i(uniRenderPass, 1);
-			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
+				// TODO: this assumes AA is always enabled
+				glDisable(GL_MULTISAMPLE);
+				if (fboWaterReflection == -1)
+					throw new RuntimeException("Water reflections will crash atm if AA is not enabled");
+				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
+				glClearDepth(1);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glDisable(GL_CULL_FACE);
+				glEnable(GL_DEPTH_TEST);
+				glDepthFunc(GL_LESS);
+				glUniform1i(uniRenderPass, 1);
+				glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
-			// Reset
-			glDisable(GL_DEPTH_TEST);
-			glEnable(GL_CULL_FACE);
+				// Reset
+				glDisable(GL_DEPTH_TEST);
+				glEnable(GL_CULL_FACE);
+			}
 
 			glActiveTexture(GL_TEXTURE4);
 			glBindTexture(GL_TEXTURE_2D, texWaterReflection);
 			glActiveTexture(GL_TEXTURE0);
 
 			// Calculate main scene projection matrix
+			if (config.enablePlanarReflections())
+			{
+				projectionMatrix = Mat4.identity();
+			}
 			projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 			Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
 			Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
