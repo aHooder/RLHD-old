@@ -1106,14 +1106,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		// Create texture
 		texWaterReflectionDepthMap = glGenTextures();
 		glBindTexture(GL_TEXTURE_2D, texWaterReflectionDepthMap);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, null);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, 0);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
 		float[] depthBorder = { 1, 1, 1, 1 };
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, depthBorder, 0);
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, depthBorder);
 
 		// Bind texture
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texWaterReflectionDepthMap, 0);
@@ -1959,10 +1959,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			// Calculate water reflection projection matrix
 			float[] projectionMatrix;
 
+			float[] projectionMatrix;
 			if (config.enablePlanarReflections())
 			{
 				int waterHeight = sceneUploader.waterHeight;
-				float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
+				projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 				Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
 				Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
 				Mat4.mul(projectionMatrix, Mat4.rotateY((float) (yaw * Perspective.UNIT)));
@@ -1986,17 +1987,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				// Reset
 				glDisable(GL_DEPTH_TEST);
 				glEnable(GL_CULL_FACE);
-			}
 
-			glActiveTexture(GL_TEXTURE4);
-			glBindTexture(GL_TEXTURE_2D, texWaterReflection);
-			glActiveTexture(GL_TEXTURE0);
+				glActiveTexture(GL_TEXTURE4);
+				glBindTexture(GL_TEXTURE_2D, texWaterReflection);
+				glActiveTexture(GL_TEXTURE0);
+
+				projectionMatrix = Mat4.identity();
+
+				// TODO: this assumes AA is always enabled
+				glEnable(GL_MULTISAMPLE);
+				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
+				glDisable(GL_SAMPLE_SHADING);
+			}
 
 			// Calculate main scene projection matrix
-			if (config.enablePlanarReflections())
-			{
-				projectionMatrix = Mat4.identity();
-			}
 			projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 			Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
 			Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
@@ -2005,10 +2009,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glUniformMatrix4fv(uniProjectionMatrix, false, projectionMatrix);
 
 			// TODO: this assumes AA is always enabled
-			glEnable(GL_MULTISAMPLE);
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 			glUniform1i(uniRenderPass, 0);
-			glDisable(GL_SAMPLE_SHADING)
 			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
 			glDisable(GL_BLEND);
