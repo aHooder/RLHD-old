@@ -63,6 +63,7 @@ flat out vec2 vUv3;
 out vec3 normals;
 out vec3 position;
 out vec3 texBlend;
+out vec3 flatNormals;
 flat out ivec3 materialId;
 flat out ivec3 terrainData;
 flat out ivec3 isOverlay;
@@ -93,7 +94,7 @@ void main() {
     // fast normals
     vec3 a = vPosition[0] - vPosition[1];
     vec3 b = vPosition[0] - vPosition[2];
-    vec3 flatNormals = normalize(cross(a,b));
+    flatNormals = normalize(cross(a,b));
 
     texBlend = vec3(1, 0, 0);
     fogAmount = vFogAmount[0];

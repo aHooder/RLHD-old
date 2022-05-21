@@ -124,6 +124,7 @@ flat in vec2 vUv3;
 in vec3 normals;
 in vec3 position;
 in vec3 texBlend;
+in vec3 flatNormals;
 flat in ivec3 materialId;
 flat in ivec3 terrainData;
 flat in ivec3 isOverlay;
@@ -148,7 +149,6 @@ void main() {
     vec3 downDir = normalize(vec3(0, -1.0, 0));
     vec3 viewDir = normalize(camPos - position);
     vec3 lightDir = normalize(vec3(lightX, lightY, lightZ));
-    vec3 normals = normalize(normals);
 
     // material data
     Material material1 = fetchMaterial(materialId.x);
@@ -230,8 +230,20 @@ void main() {
 
     if (isWater)
     {
-        // Hide water surface tiles in the reflection
-        if (renderPass == RENDER_PASS_WATER_REFLECTION)
+//        FragColor = vec4(
+//            dot(flatNormals, downDir),
+//            -dot(flatNormals, downDir),
+//            0, 1);
+//        return;
+
+        bool isFlat = dot(flatNormals, vec3(0, 0, -1)) < .001;
+
+//        if (isFlat)
+//            discard;
+//        FragColor = vec4(vec3(float(isFlat)), 1); return;
+
+        // Hide flat water surface tiles in the reflection
+        if (renderPass == RENDER_PASS_WATER_REFLECTION && isFlat)
             discard;
 
         if (diffuseMapId1 >= 7000 || diffuseMapId2 >= 7000 || diffuseMapId3 >= 7000)
@@ -623,6 +635,7 @@ void main() {
     float emissive = emissive1 * texBlend[0] + emissive2 * texBlend[1] + emissive3 * texBlend[2];
 
     // normals
+    vec3 normals = normalize(normals);
     if (isWater)
     {
         vec3 norm1 = -vec3((diffuse1.x * 2 - 1) * waterNormalStrength, diffuse1.z, (diffuse1.y * 2 - 1) * waterNormalStrength);

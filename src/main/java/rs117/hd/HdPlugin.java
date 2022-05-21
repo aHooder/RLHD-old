@@ -289,7 +289,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int lastCanvasHeight;
 	private int lastStretchedCanvasWidth;
 	private int lastStretchedCanvasHeight;
-	private boolean lastWaterReflectionEnabled = false;
+	private boolean lastWaterReflectionEnabled;
 	private AntiAliasingMode lastAntiAliasingMode;
 	private int lastAnisotropicFilteringLevel = -1;
 
@@ -544,6 +544,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				lastCanvasWidth = lastCanvasHeight = -1;
 				lastStretchedCanvasWidth = lastStretchedCanvasHeight = -1;
 				lastAntiAliasingMode = null;
+				lastWaterReflectionEnabled = false;
 
 				textureArrayId = -1;
 				textureHDArrayId = -1;
@@ -773,8 +774,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		uniUnderwaterCaustics = glGetUniformLocation(glProgram, "underwaterCaustics");
 		uniUnderwaterCausticsColor = glGetUniformLocation(glProgram, "underwaterCausticsColor");
 		uniUnderwaterCausticsStrength = glGetUniformLocation(glProgram, "underwaterCausticsStrength");
-		uniWaterHeight = gl.glGetUniformLocation(glProgram, "waterHeight");
-		uniWaterReflectionEnabled = gl.glGetUniformLocation(glProgram, "waterReflectionEnabled");
+		uniWaterHeight = glGetUniformLocation(glProgram, "waterHeight");
+		uniWaterReflectionEnabled = glGetUniformLocation(glProgram, "waterReflectionEnabled");
 
 		uniTex = glGetUniformLocation(glUiProgram, "tex");
 		uniTexSamplingMode = glGetUniformLocation(glUiProgram, "samplingMode");
@@ -1807,9 +1808,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 					log.debug("AA samples: {}, max samples: {}, forced samples: {}", samples, maxSamples, forcedAASamples);
 
 					initAAFbo(stretchedCanvasWidth, stretchedCanvasHeight, samples);
-
-					lastStretchedCanvasWidth = stretchedCanvasWidth;
-					lastStretchedCanvasHeight = stretchedCanvasHeight;
 				}
 
 				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
@@ -2005,11 +2003,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				Mat4.mul(projectionMatrix, Mat4.translate(-client.getCameraX2(), -(client.getCameraY2() + (sceneUploader.waterHeight - client.getCameraY2()) *2), -client.getCameraZ2()));
 				glUniformMatrix4fv(uniProjectionMatrix, false, projectionMatrix);
 
-
-				// TODO: this assumes AA is always enabled
-				glDisable(GL_MULTISAMPLE);
-				if (fboWaterReflection == -1)
-					throw new RuntimeException("Water reflections will crash atm if AA is not enabled");
+				if (aaEnabled)
+				{
+					// Disable multisampling while rendering to the water reflection texture
+					glDisable(GL_MULTISAMPLE);
+				}
 				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
 				glClearDepth(1);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -2019,13 +2017,23 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				glUniform1i(uniRenderPass, 1);
 				glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
-				// Reset
-				glDisable(GL_DEPTH_TEST);
-				glEnable(GL_CULL_FACE);
-
+				// Bind the water reflection texture to index 4
 				glActiveTexture(GL_TEXTURE4);
 				glBindTexture(GL_TEXTURE_2D, texWaterReflection);
 				glActiveTexture(GL_TEXTURE0);
+
+				// Reset everything back to the main pass' state
+				glDisable(GL_DEPTH_TEST);
+				glEnable(GL_CULL_FACE);
+				if (aaEnabled)
+				{
+					glEnable(GL_MULTISAMPLE);
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
+				}
+				else
+				{
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+				}
 
 				projectionMatrix = Mat4.identity();
 
