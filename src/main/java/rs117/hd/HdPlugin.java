@@ -1988,10 +1988,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
 			glVertexAttribPointer(2, 4, GL_FLOAT, false, 0, 0);
 
-			// Calculate water reflection projection matrix
 			float[] projectionMatrix;
 			if (config.enablePlanarReflections())
 			{
+				// Calculate water reflection projection matrix
 				int waterHeight = sceneUploader.waterHeight;
 				projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 				Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
