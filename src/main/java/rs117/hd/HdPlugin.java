@@ -604,6 +604,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				shutdownPrograms();
 				shutdownVao();
 				shutdownAAFbo();
+				shutdownPlanarReflectionsFbo();
 				shutdownShadowMapFbo();
 			}
 
@@ -1078,7 +1079,29 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_RGBA, width, height);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneHandle);
 
-		if(config.enablePlanarReflections())
+		// Reset
+		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	}
+
+	private void shutdownAAFbo()
+	{
+		if (fboSceneHandle != -1)
+		{
+			glDeleteFramebuffers(fboSceneHandle);
+			fboSceneHandle = -1;
+		}
+
+		if (rboSceneHandle != -1)
+		{
+			glDeleteRenderbuffers(rboSceneHandle);
+			rboSceneHandle = -1;
+		}
+	}
+
+	private void initPlanarReflectionsFbo(int width, int height)
+	{
+		if (rboSceneHandle != -1)
 		{
 			fboWaterReflection = glGenFramebuffers();
 			glBindFramebuffer(GL_FRAMEBUFFER, fboWaterReflection);
@@ -1124,20 +1147,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 
-	private void shutdownAAFbo()
-	{
-		if (fboSceneHandle != -1)
-		{
-			glDeleteFramebuffers(fboSceneHandle);
-			fboSceneHandle = -1;
-		}
-
-		if (rboSceneHandle != -1)
-		{
-			glDeleteRenderbuffers(rboSceneHandle);
-			rboSceneHandle = -1;
-		}
-
+	private void shutdownPlanarReflectionsFbo() {
 		if (texWaterReflection != -1)
 		{
 			glDeleteTextures(texWaterReflection);
@@ -1770,29 +1780,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			final int stretchedCanvasWidth = client.isStretchedEnabled() ? stretchedDimensions.width : canvasWidth;
 			final int stretchedCanvasHeight = client.isStretchedEnabled() ? stretchedDimensions.height : canvasHeight;
 
-			// Setup planar reflection FBO
-			final boolean planarReflectionsEnabled = config.enablePlanarReflections();
-			if (planarReflectionsEnabled)
-			{
-				// Re-create fbo
-				if (lastStretchedCanvasWidth != stretchedCanvasWidth
-						|| lastStretchedCanvasHeight != stretchedCanvasHeight
-						|| lastPlanarReflectionsEnabled != planarReflectionsEnabled)
-				{
-					shutdownPlanarReflectionsFbo();
-
-					initPlanarReflectionsFbo(stretchedCanvasWidth, stretchedCanvasHeight);
-				}
-			}
-			else
-			{
-				shutdownPlanarReflectionsFbo();
-			}
-
-			lastPlanarReflectionsEnabled =  planarReflectionsEnabled;
-			lastStretchedCanvasWidth = stretchedCanvasWidth;
-			lastStretchedCanvasHeight = stretchedCanvasHeight;
-
 			// Setup anti-aliasing
 			final AntiAliasingMode antiAliasingMode = config.antiAliasingMode();
 			final boolean aaEnabled = antiAliasingMode != AntiAliasingMode.DISABLED;
@@ -1800,15 +1787,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			{
 				glEnable(GL_MULTISAMPLE);
 
-				final Dimension stretchedDimensions = client.getStretchedDimensions();
-
-				final int stretchedCanvasWidth = client.isStretchedEnabled() ? stretchedDimensions.width : canvasWidth;
-				final int stretchedCanvasHeight = client.isStretchedEnabled() ? stretchedDimensions.height : canvasHeight;
-
 				// Re-create fbo
-				if (lastStretchedCanvasWidth != stretchedCanvasWidth
-					|| lastStretchedCanvasHeight != stretchedCanvasHeight
-					|| lastAntiAliasingMode != antiAliasingMode)
+				if (lastStretchedCanvasWidth != stretchedCanvasWidth ||
+					lastStretchedCanvasHeight != stretchedCanvasHeight ||
+					lastAntiAliasingMode != antiAliasingMode)
 				{
 					shutdownAAFbo();
 
@@ -1835,7 +1817,28 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				shutdownAAFbo();
 			}
 
+			// Setup planar reflection FBO
+			final boolean planarReflectionsEnabled = config.enablePlanarReflections();
+			if (planarReflectionsEnabled)
+			{
+				// Re-create planar reflections FBO if needed
+				if (!lastPlanarReflectionsEnabled ||
+					lastStretchedCanvasWidth != stretchedCanvasWidth ||
+					lastStretchedCanvasHeight != stretchedCanvasHeight)
+				{
+					shutdownPlanarReflectionsFbo();
+					initPlanarReflectionsFbo(stretchedCanvasWidth, stretchedCanvasHeight);
+				}
+			}
+			else
+			{
+				shutdownPlanarReflectionsFbo();
+			}
+
+			lastPlanarReflectionsEnabled = planarReflectionsEnabled;
 			lastAntiAliasingMode = antiAliasingMode;
+			lastStretchedCanvasWidth = stretchedCanvasWidth;
+			lastStretchedCanvasHeight = stretchedCanvasHeight;
 
 			// Clear scene
 			float[] fogColor = hasLoggedIn ? environmentManager.getFogColor() : EnvironmentManager.BLACK_COLOR;
@@ -1986,8 +1989,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glVertexAttribPointer(2, 4, GL_FLOAT, false, 0, 0);
 
 			// Calculate water reflection projection matrix
-			float[] projectionMatrix;
-
 			float[] projectionMatrix;
 			if (config.enablePlanarReflections())
 			{
