@@ -101,6 +101,7 @@ uniform float lightZ;
 uniform float shadowMaxBias;
 uniform int shadowsEnabled;
 uniform int waterHeight;
+uniform bool waterReflectionEnabled;
 uniform bool underwaterEnvironment;
 uniform bool underwaterCaustics;
 uniform vec3 underwaterCausticsColor;
@@ -229,6 +230,7 @@ void main() {
 
     if (isWater)
     {
+        // Hide water surface tiles in the reflection
         if (renderPass == RENDER_PASS_WATER_REFLECTION)
             discard;
 
@@ -322,7 +324,8 @@ void main() {
     {
         isUnderwater = true;
 
-        if (renderPass == 1)
+        // Hide underwater tiles in the reflection
+        if (renderPass == RENDER_PASS_WATER_REFLECTION)
             discard;
 
         if (underwaterType == WATER)
@@ -819,8 +822,6 @@ void main() {
         }
         else
         {
-            const vec3 baseWaterColor = vec3(.722, .839, 1) / 3;
-
             vec3 I = viewDir; // incident
             vec3 N = normals.xyz; // normal
 
@@ -834,8 +835,10 @@ void main() {
             uv += distortion.xz / 1000;
             uv = clamp(uv, 0, 1);
 
-            vec3 c = waterHeight == position.y ?
-                texture(waterReflectionMap, uv).rgb : waterColorLight;
+            vec3 c = waterColorLight;
+
+            if (waterReflectionEnabled && distance(waterHeight, position.y) < 32)
+                c = texture(waterReflectionMap, uv).rgb;
 
             surfaceColor = mix(waterColorMid, c, (finalFresnel - 0.5) * 2);
 

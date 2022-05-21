@@ -34,7 +34,6 @@ import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.DrawCallbacks;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -290,7 +289,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int lastCanvasHeight;
 	private int lastStretchedCanvasWidth;
 	private int lastStretchedCanvasHeight;
-	private boolean lastPlanarReflectionsEnabled = false;
+	private boolean lastWaterReflectionEnabled = false;
 	private AntiAliasingMode lastAntiAliasingMode;
 	private int lastAnisotropicFilteringLevel = -1;
 
@@ -331,6 +330,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int uniUnderwaterCaustics;
 	private int uniUnderwaterCausticsColor;
 	private int uniUnderwaterCausticsStrength;
+	private int uniWaterHeight;
+	private int uniWaterReflectionEnabled;
 
 	// Shadow program uniforms
 	private int uniShadowTexturesHD;
@@ -604,7 +605,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				shutdownPrograms();
 				shutdownVao();
 				shutdownAAFbo();
-				shutdownPlanarReflectionsFbo();
+				shutdownWaterReflectionFbo();
 				shutdownShadowMapFbo();
 			}
 
@@ -772,6 +773,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		uniUnderwaterCaustics = glGetUniformLocation(glProgram, "underwaterCaustics");
 		uniUnderwaterCausticsColor = glGetUniformLocation(glProgram, "underwaterCausticsColor");
 		uniUnderwaterCausticsStrength = glGetUniformLocation(glProgram, "underwaterCausticsStrength");
+		uniWaterHeight = gl.glGetUniformLocation(glProgram, "waterHeight");
+		uniWaterReflectionEnabled = gl.glGetUniformLocation(glProgram, "waterReflectionEnabled");
 
 		uniTex = glGetUniformLocation(glUiProgram, "tex");
 		uniTexSamplingMode = glGetUniformLocation(glUiProgram, "samplingMode");
@@ -1099,7 +1102,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		}
 	}
 
-	private void initPlanarReflectionsFbo(int width, int height)
+	private void initWaterReflectionFbo(int width, int height)
 	{
 		if (rboSceneHandle != -1)
 		{
@@ -1147,7 +1150,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 
-	private void shutdownPlanarReflectionsFbo() {
+	private void shutdownWaterReflectionFbo() {
 		if (texWaterReflection != -1)
 		{
 			glDeleteTextures(texWaterReflection);
@@ -1818,24 +1821,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			}
 
 			// Setup planar reflection FBO
-			final boolean planarReflectionsEnabled = config.enablePlanarReflections();
-			if (planarReflectionsEnabled)
+			final boolean waterReflectionEnabled = config.enablePlanarReflections();
+			if (waterReflectionEnabled)
 			{
 				// Re-create planar reflections FBO if needed
-				if (!lastPlanarReflectionsEnabled ||
+				if (!lastWaterReflectionEnabled ||
 					lastStretchedCanvasWidth != stretchedCanvasWidth ||
 					lastStretchedCanvasHeight != stretchedCanvasHeight)
 				{
-					shutdownPlanarReflectionsFbo();
-					initPlanarReflectionsFbo(stretchedCanvasWidth, stretchedCanvasHeight);
+					shutdownWaterReflectionFbo();
+					initWaterReflectionFbo(stretchedCanvasWidth, stretchedCanvasHeight);
 				}
 			}
 			else
 			{
-				shutdownPlanarReflectionsFbo();
+				shutdownWaterReflectionFbo();
 			}
 
-			lastPlanarReflectionsEnabled = planarReflectionsEnabled;
+			lastWaterReflectionEnabled = waterReflectionEnabled;
 			lastAntiAliasingMode = antiAliasingMode;
 			lastStretchedCanvasWidth = stretchedCanvasWidth;
 			lastStretchedCanvasHeight = stretchedCanvasHeight;
@@ -1993,6 +1996,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			{
 				// Calculate water reflection projection matrix
 				int waterHeight = sceneUploader.waterHeight;
+				glUniform1i(uniWaterHeight, waterHeight);
+
 				projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
 				Mat4.mul(projectionMatrix, Mat4.projection(viewportWidth, viewportHeight, 50));
 				Mat4.mul(projectionMatrix, Mat4.rotateX((float) -(Math.PI - pitch * Perspective.UNIT)));
@@ -2040,6 +2045,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			// TODO: this assumes AA is always enabled
 			glUniform1i(uniRenderPass, 0);
+			glUniform1i(uniWaterReflectionEnabled, waterReflectionEnabled ? 1 : 0);
 			glDrawArrays(GL_TRIANGLES, 0, targetBufferOffset);
 
 			glDisable(GL_BLEND);
