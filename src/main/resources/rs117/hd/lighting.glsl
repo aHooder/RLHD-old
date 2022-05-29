@@ -33,3 +33,16 @@ vec4 specular(vec3 viewDir, vec3 reflectDir, vec3 specularGloss, vec3 specularSt
     vec4 combined = vec4(specX * texBlend.x + specY * texBlend.y + specZ * texBlend.z, specAmount);
     return vDotR > 0.0 ? combined : vec4(0.0);
 }
+
+float calculateFresnel(const vec3 I, const vec3 N, const float ior) {
+    float cosi = dot(I, N);
+    float etai = 1, etat = ior;
+    if (cosi > 0) {
+        etai = ior;
+        etat = 1;
+    }
+
+    float R0 = (etai - etat) / (etai + etat);
+    R0 *= R0;
+    return R0 + (1 - R0) * pow(1 - cosi, 5);
+}

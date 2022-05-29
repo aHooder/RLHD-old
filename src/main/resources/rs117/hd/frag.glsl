@@ -23,7 +23,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#version 330
+#version 430
+// 430 is only used for smoothstep
 
 #include MAX_MATERIALS
 #define MAX_LIGHTS 100
@@ -77,9 +78,6 @@ uniform float animationCurrent;
 uniform int colorBlindMode;
 uniform vec4 fogColor;
 uniform int fogDepth;
-uniform vec3 waterColorLight;
-uniform vec3 waterColorMid;
-uniform vec3 waterColorDark;
 uniform vec3 ambientColor;
 uniform float ambientStrength;
 uniform vec3 lightColor;
@@ -129,6 +127,7 @@ out vec4 FragColor;
 #include colorblind.glsl
 #include utils/fetch_material.glsl
 #include utils/caustics.glsl
+#include utils/texture_tiling.glsl
 
 #define WATER 1
 #define SWAMP_WATER 3
@@ -172,7 +171,7 @@ void main() {
     float waterNormalStrength = 0.0;
     float waterBaseOpacity = 1.0;
     float waterFresnelAmount = 0.0;
-    vec3 waterSurfaceColor = vec3(1, 0, 0);
+    vec3 waterColor = vec3(1, 0, 0);
     vec3 waterFoamColor = vec3(0, 0, 0);
     int waterHasFoam = 1;
     float waterDuration = 1;
@@ -180,17 +179,17 @@ void main() {
     int waterNormalMap2 = 236;
 
     if (
-   diffuseMapId1 == 1 || diffuseMapId1 == 24 || diffuseMapId1 == 7001 || diffuseMapId1 == 7024 ||
-   diffuseMapId2 == 1 || diffuseMapId2 == 24 || diffuseMapId2 == 7001 || diffuseMapId2 == 7024 ||
-   diffuseMapId3 == 1 || diffuseMapId3 == 24 || diffuseMapId3 == 7001 || diffuseMapId3 == 7024)
+        diffuseMapId1 == 1 || diffuseMapId1 == 24 || diffuseMapId1 == 7001 || diffuseMapId1 == 7024 ||
+        diffuseMapId2 == 1 || diffuseMapId2 == 24 || diffuseMapId2 == 7001 || diffuseMapId2 == 7024 ||
+        diffuseMapId3 == 1 || diffuseMapId3 == 24 || diffuseMapId3 == 7001 || diffuseMapId3 == 7024)
     {
         isWater = true;
         waterType = WATER;
     }
     else if (
-    diffuseMapId1 == 25 || diffuseMapId1 == 7025 ||
-    diffuseMapId2 == 25 || diffuseMapId2 == 7025 ||
-    diffuseMapId3 == 25 || diffuseMapId3 == 7025)
+        diffuseMapId1 == 25 || diffuseMapId1 == 7025 ||
+        diffuseMapId2 == 25 || diffuseMapId2 == 7025 ||
+        diffuseMapId3 == 25 || diffuseMapId3 == 7025)
     {
         isWater = true;
         waterType = SWAMP_WATER;
@@ -204,17 +203,17 @@ void main() {
         waterType = POISON_WASTE;
     }
     else if (
-    diffuseMapId1 == 999 || diffuseMapId1 == 7999 ||
-    diffuseMapId2 == 999 || diffuseMapId2 == 7999 ||
-    diffuseMapId3 == 999 || diffuseMapId3 == 7999)
+        diffuseMapId1 == 999 || diffuseMapId1 == 7999 ||
+        diffuseMapId2 == 999 || diffuseMapId2 == 7999 ||
+        diffuseMapId3 == 999 || diffuseMapId3 == 7999)
     {
         isWater = true;
         waterType = BLOOD;
     }
     else if (
-    diffuseMapId1 == 997 || diffuseMapId1 == 7997 ||
-    diffuseMapId2 == 997 || diffuseMapId2 == 7997 ||
-    diffuseMapId3 == 997 || diffuseMapId3 == 7997)
+        diffuseMapId1 == 997 || diffuseMapId1 == 7997 ||
+        diffuseMapId2 == 997 || diffuseMapId2 == 7997 ||
+        diffuseMapId3 == 997 || diffuseMapId3 == 7997)
     {
         isWater = true;
         waterType = ICE;
@@ -230,39 +229,40 @@ void main() {
         switch (waterType)
         {
             case WATER:
-            waterSpecularStrength = 0.5;
-            waterSpecularGloss = 500;
-            waterNormalStrength = 0.09;
-            waterBaseOpacity = 0.5;
-            waterFresnelAmount = 1.0;
-            waterSurfaceColor = vec3(1, 1, 1);
-            waterFoamColor = vec3(176, 164, 146);
-            waterHasFoam = 1;
-            waterDuration = 1;
-            waterNormalMap1 = 236;
-            waterNormalMap2 = 236;
-            break;
+                waterSpecularStrength = 0.5;
+                waterSpecularGloss = 500;
+                waterNormalStrength = 0.09;
+                waterBaseOpacity = 0.5;
+                waterFresnelAmount = 1.0;
+//                waterColor = vec3(0, 117, 142) / 255.0;
+                waterColor = vec3(94, 114, 164) / 255.0;
+                waterFoamColor = vec3(176, 164, 146) / 255.0;
+                waterHasFoam = 1;
+                waterDuration = 1;
+                waterNormalMap1 = 236;
+                waterNormalMap2 = 236;
+                break;
             case SWAMP_WATER:
-            waterSpecularStrength = 0.1;
-            waterSpecularGloss = 100;
-            waterNormalStrength = 0.05;
-            waterBaseOpacity = 0.8;
-            waterFresnelAmount = 0.3;
-            waterSurfaceColor = vec3(23, 33, 20) / 255.0;
-            waterFoamColor = vec3(115, 120, 101);
-            waterHasFoam = 1;
-            waterDuration = 1.2;
-            waterNormalMap1 = 236;
-            waterNormalMap2 = 236;
-            break;
+                waterSpecularStrength = 0.1;
+                waterSpecularGloss = 100;
+                waterNormalStrength = 0.05;
+                waterBaseOpacity = 0.8;
+                waterFresnelAmount = 0.3;
+                waterColor = vec3(23, 33, 20) / 255.0;
+                waterFoamColor = vec3(115, 120, 101) / 255.0;
+                waterHasFoam = 1;
+                waterDuration = 1.2;
+                waterNormalMap1 = 236;
+                waterNormalMap2 = 236;
+                break;
             case POISON_WASTE:
             waterSpecularStrength = 0.1;
             waterSpecularGloss = 100;
             waterNormalStrength = 0.05;
             waterBaseOpacity = 0.9;
             waterFresnelAmount = 0.3;
-            waterSurfaceColor = vec3(22, 23, 13) / 255.0;
-            waterFoamColor = vec3(106, 108, 100);
+            waterColor = vec3(22, 23, 13) / 255.0;
+            waterFoamColor = vec3(106, 108, 100) / 255.0;
             waterHasFoam = 1;
             waterDuration = 1.6;
             waterNormalMap1 = 236;
@@ -274,8 +274,8 @@ void main() {
             waterNormalStrength = 0.05;
             waterBaseOpacity = 0.8;
             waterFresnelAmount = 0.3;
-            waterSurfaceColor = vec3(38, 0, 0) / 255.0;
-            waterFoamColor = vec3(117, 63, 45);
+            waterColor = vec3(38, 0, 0) / 255.0;
+            waterFoamColor = vec3(117, 63, 45) / 255.0;
             waterHasFoam = 1;
             waterDuration = 2;
             waterNormalMap1 = 236;
@@ -287,8 +287,8 @@ void main() {
             waterNormalStrength = 0.04;
             waterBaseOpacity = 0.85;
             waterFresnelAmount = 1.0;
-            waterSurfaceColor = vec3(1, 1, 1);
-            waterFoamColor = vec3(150, 150, 150);
+            waterColor = vec3(120, 182, 195) / 255.0;
+            waterFoamColor = vec3(150, 150, 150) / 255.0;
             waterHasFoam = 1;
             waterDuration = 0;
             waterNormalMap1 = 246;
@@ -610,9 +610,20 @@ void main() {
     vec3 normals = normalize(normals);
     if (isWater)
     {
-        vec3 norm1 = -vec3((diffuse1.x * 2 - 1) * waterNormalStrength, diffuse1.z, (diffuse1.y * 2 - 1) * waterNormalStrength);
-        vec3 norm2 = -vec3((diffuse2.x * 2 - 1) * waterNormalStrength, diffuse2.z, (diffuse2.y * 2 - 1) * waterNormalStrength);
-        normals = normalize(norm1 + norm2);
+//        vec3 norm1 = -vec3((diffuse1.x * 2 - 1) * waterNormalStrength, diffuse1.z, (diffuse1.y * 2 - 1) * waterNormalStrength);
+//        vec3 norm2 = -vec3((diffuse2.x * 2 - 1) * waterNormalStrength, diffuse2.z, (diffuse2.y * 2 - 1) * waterNormalStrength);
+//        normals = normalize(norm1 + norm2);
+
+//        float d = dot(normals, viewDir);
+//        if (normals.z < 0)
+//            normals.z *= -1;
+//        FragColor = vec4(normals, 1); return;
+//        FragColor = vec4(vec3(d), 1);
+//        FragColor = vec4(normals.xyz * -10, 1); return;
+
+        vec3 norm1 = diffuse1.xyz * 2 - 1;
+        vec3 norm2 = diffuse2.xyz * 2 - 1;
+        normals = normalize(normals + (norm1 - norm2) * waterNormalStrength);
     }
 
 
@@ -621,6 +632,8 @@ void main() {
     float lightDotNormals = dot(normals, lightDir);
     float downDotNormals = dot(downDir, normals);
     float viewDotNormals = dot(viewDir, normals);
+
+//    FragColor = vec4(vec3(viewDotNormals), 1); return;
 
 
 
@@ -800,15 +813,22 @@ void main() {
     vec3 surfaceColor = vec3(0);
     if (isWater)
     {
-        // add sky gradient
-        if (finalFresnel < 0.5)
-        {
-            surfaceColor = mix(waterColorDark, waterColorMid, finalFresnel * 2);
-        }
-        else
-        {
-            surfaceColor = mix(waterColorMid, waterColorLight, (finalFresnel - 0.5) * 2);
-        }
+        const vec3 baseWaterColor = vec3(.722, .839, 1) / 3;
+
+        vec3 I = viewDir; // incident
+        vec3 N = normals.xyz; // normal
+
+//        FragColor = vec4(I, 1); return;
+//        FragColor = vec4(N, 1); return;
+
+        fresnel = calculateFresnel(I, N, 1.3);
+//        FragColor = vec4(vec3(fresnel), 1); return;
+        finalFresnel = clamp(mix(baseOpacity, 1.0, fresnel * 1.2), 0.0, 1.0);
+
+        vec3 waterReflection = skyLightColor;
+        if (distance(waterReflection, vec3(0)) < .001)
+            waterReflection = vec3(185, 214, 255) / 255.;
+        surfaceColor = mix(waterColor, c, finalFresnel);
     }
     vec3 surfaceColorOut = surfaceColor * max(combinedSpecularStrength, 0.2);
 
@@ -817,28 +837,55 @@ void main() {
     vec3 compositeLight = ambientLightOut + lightOut + lightSpecularOut + skyLightOut + lightningOut +
         underglowOut + pointLightsOut + pointLightsSpecularOut + surfaceColorOut;
 
-
     if (isWater)
     {
-        vec3 baseColor = waterSurfaceColor * compositeLight;
-        baseColor = mix(baseColor, surfaceColor, waterFresnelAmount);
+        vec3 color = surfaceColor;
+
+        // shadows
         float shadowDarken = 0.15;
-        baseColor *= (1.0 - shadowDarken) + inverseShadow * shadowDarken;
+        color *= (1.0 - shadowDarken) + inverseShadow * shadowDarken;
+
+        // foam
         float maxFoamAmount = 0.8;
         float foamAmount = min(1.0 - fragColor.r, maxFoamAmount);
         float foamDistance = 0.7;
         vec3 foamColor = waterFoamColor / 255.0;
-        foamColor = foamColor * diffuse3.rgb * compositeLight;
+        foamColor = foamColor * diffuse3.xyz * compositeLight * 300;
         foamAmount = clamp(pow(1.0 - ((1.0 - foamAmount) / foamDistance), 3), 0.0, 1.0) * waterHasFoam;
         foamAmount *= foamColor.r;
-        baseColor = mix(baseColor, foamColor, foamAmount);
+        color = mix(color, foamColor, foamAmount);
+
+        // specular
         vec3 specularComposite = mix(lightSpecularOut, vec3(0.0), foamAmount);
         float flatFresnel = (1.0 - dot(viewDir, downDir)) * 1.0;
         finalFresnel = max(finalFresnel, flatFresnel);
         finalFresnel -= finalFresnel * shadow * 0.2;
-        baseColor += pointLightsSpecularOut + lightSpecularOut / 3;
+        color += pointLightsSpecularOut + lightSpecularOut / 3;
+
+        compositeColor = color;
+
         alpha = max(waterBaseOpacity, max(foamAmount, max(finalFresnel, length(specularComposite / 3))));
-        compositeColor = baseColor;
+
+
+//        vec3 baseColor = waterColor * compositeLight;
+//        baseColor = mix(baseColor, surfaceColor, waterFresnelAmount);
+//        float shadowDarken = 0.15;
+//        baseColor *= (1.0 - shadowDarken) + inverseShadow * shadowDarken;
+//        float maxFoamAmount = 0.8;
+//        float foamAmount = min(1.0 - fragColor.r, maxFoamAmount);
+//        float foamDistance = 0.7;
+//        vec3 foamColor = waterFoamColor;
+//        foamColor = foamColor * diffuse3.rgb * compositeLight;
+//        foamAmount = clamp(pow(1.0 - ((1.0 - foamAmount) / foamDistance), 3), 0.0, 1.0) * waterHasFoam;
+//        foamAmount *= foamColor.r;
+//        baseColor = mix(baseColor, foamColor, foamAmount);
+//        vec3 specularComposite = mix(lightSpecularOut, vec3(0.0), foamAmount);
+//        float flatFresnel = (1.0 - dot(viewDir, downDir)) * 1.0;
+//        finalFresnel = max(finalFresnel, flatFresnel);
+//        finalFresnel -= finalFresnel * shadow * 0.2;
+//        baseColor += pointLightsSpecularOut + lightSpecularOut / 3;
+//        alpha = max(waterBaseOpacity, max(foamAmount, max(finalFresnel, length(specularComposite / 3))));
+//        compositeColor = baseColor;
     }
     else
     {
@@ -892,7 +939,7 @@ void main() {
             vec3 caustics = sampleCaustics(flow1, flow2, .005);
 
             vec3 causticsColor = underwaterCausticsColor * underwaterCausticsStrength;
-            compositeColor *= 1 + caustics * causticsColor * depthMultiplier * lightDotNormals * lightStrength;
+            compositeColor *= 1 + caustics * causticsColor * depthMultiplier * lightDotNormals * lightStrength * (1 - finalFresnel);
         }
     }
 

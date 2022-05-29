@@ -28,6 +28,7 @@ import static com.jogamp.opengl.math.VectorUtil.crossVec3;
 import static com.jogamp.opengl.math.VectorUtil.subVec3;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.JagexColor;
 
 @Slf4j
 @Singleton
@@ -175,7 +176,7 @@ public class HDUtils
 
 	public static int colorRGBToInt(float[] colorRGB) {
 		int[] colorRGBInt = new int[3];
-		for (int i = 0; i < colorRGB.length; i++) {
+		for (int i = 0; i < colorRGBInt.length; i++) {
 			colorRGBInt[i] = (int)(colorRGB[i] * 255);
 		}
 		return (colorRGBInt[0] << 8 | colorRGBInt[1]) << 8 | colorRGBInt[2] | 134217728;
@@ -241,5 +242,19 @@ public class HDUtils
 	{
 		float gamma = 2.2f;
 		return (float)Math.pow(c, gamma);
+	}
+
+	public static float[] rgb(int r, int g, int b)
+	{
+		return new float[]{
+			gammaToLinear(r / 255f),
+			gammaToLinear(g / 255f),
+			gammaToLinear(b / 255f)
+		};
+	}
+
+	public static int rgbToJagexHsl(int r, int g, int b)
+	{
+		return JagexColor.rgbToHSL(r << 16 | g << 8 | b, 1);
 	}
 }

@@ -311,9 +311,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int uniFogColor;
 	private int uniFogDepth;
 	private int uniDrawDistance;
-	private int uniWaterColorLight;
-	private int uniWaterColorMid;
-	private int uniWaterColorDark;
 	private int uniAmbientStrength;
 	private int uniAmbientColor;
 	private int uniLightStrength;
@@ -863,9 +860,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		uniUseFog = gl.glGetUniformLocation(glProgram, "useFog");
 		uniFogColor = gl.glGetUniformLocation(glProgram, "fogColor");
 		uniFogDepth = gl.glGetUniformLocation(glProgram, "fogDepth");
-		uniWaterColorLight = gl.glGetUniformLocation(glProgram, "waterColorLight");
-		uniWaterColorMid = gl.glGetUniformLocation(glProgram, "waterColorMid");
-		uniWaterColorDark = gl.glGetUniformLocation(glProgram, "waterColorDark");
 		uniDrawDistance = gl.glGetUniformLocation(glProgram, "drawDistance");
 		uniAmbientStrength = gl.glGetUniformLocation(glProgram, "ambientStrength");
 		uniAmbientColor = gl.glGetUniformLocation(glProgram, "ambientColor");
@@ -1947,30 +1941,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			gl.glUniform1i(uniDrawDistance, drawDistance * Perspective.LOCAL_TILE_SIZE);
 			gl.glUniform1i(uniColorBlindMode, config.colorBlindMode().ordinal());
 
-			float[] waterColor = environmentManager.currentWaterColor;
-			float[] waterColorHSB = Color.RGBtoHSB((int) (waterColor[0] * 255f), (int) (waterColor[1] * 255f), (int) (waterColor[2] * 255f), null);
-			float lightBrightnessMultiplier = 0.8f;
-			float midBrightnessMultiplier = 0.45f;
-			float darkBrightnessMultiplier = 0.05f;
-			float[] waterColorLight = new Color(Color.HSBtoRGB(waterColorHSB[0], waterColorHSB[1], waterColorHSB[2] * lightBrightnessMultiplier)).getRGBColorComponents(null);
-			float[] waterColorMid = new Color(Color.HSBtoRGB(waterColorHSB[0], waterColorHSB[1], waterColorHSB[2] * midBrightnessMultiplier)).getRGBColorComponents(null);
-			float[] waterColorDark = new Color(Color.HSBtoRGB(waterColorHSB[0], waterColorHSB[1], waterColorHSB[2] * darkBrightnessMultiplier)).getRGBColorComponents(null);
-			for (int i = 0; i < waterColorLight.length; i++)
-			{
-				waterColorLight[i] = HDUtils.linearToGamma(waterColorLight[i]);
-			}
-			for (int i = 0; i < waterColorMid.length; i++)
-			{
-				waterColorMid[i] = HDUtils.linearToGamma(waterColorMid[i]);
-			}
-			for (int i = 0; i < waterColorDark.length; i++)
-			{
-				waterColorDark[i] = HDUtils.linearToGamma(waterColorDark[i]);
-			}
-			gl.glUniform3f(uniWaterColorLight, waterColorLight[0], waterColorLight[1], waterColorLight[2]);
-			gl.glUniform3f(uniWaterColorMid, waterColorMid[0], waterColorMid[1], waterColorMid[2]);
-			gl.glUniform3f(uniWaterColorDark, waterColorDark[0], waterColorDark[1], waterColorDark[2]);
-
 			// get ambient light strength from either the config or the current area
 			float ambientStrength = environmentManager.currentAmbientStrength;
 			ambientStrength *= (double)config.brightness() / 20;
@@ -1978,7 +1948,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			// and ambient color
 			float[] ambientColor = environmentManager.currentAmbientColor;
-			gl.glUniform3f(uniAmbientColor, ambientColor[0], ambientColor[1], ambientColor[2]);
+			gl.glUniform3fv(uniAmbientColor, 1, ambientColor, 0);
 
 			// get light strength from either the config or the current area
 			float lightStrength = environmentManager.currentDirectionalStrength;
@@ -1987,14 +1957,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			// and light color
 			float[] lightColor = environmentManager.currentDirectionalColor;
-			gl.glUniform3f(uniLightColor, lightColor[0], lightColor[1], lightColor[2]);
+			gl.glUniform3fv(uniLightColor, 1, lightColor, 0);
 
 			// get underglow light strength from the current area
 			float underglowStrength = environmentManager.currentUnderglowStrength;
 			gl.glUniform1f(uniUnderglowStrength, underglowStrength);
 			// and underglow color
 			float[] underglowColor = environmentManager.currentUnderglowColor;
-			gl.glUniform3f(uniUnderglowColor, underglowColor[0], underglowColor[1], underglowColor[2]);
+			gl.glUniform3fv(uniUnderglowColor, 1, underglowColor, 0);
 
 			// get ground fog variables
 			float groundFogStart = environmentManager.currentGroundFogStart;

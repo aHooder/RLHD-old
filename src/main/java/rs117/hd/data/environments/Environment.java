@@ -27,6 +27,7 @@ package rs117.hd.data.environments;
 import java.awt.Color;
 import lombok.Getter;
 import rs117.hd.utils.HDUtils;
+import static rs117.hd.utils.HDUtils.*;
 
 @Getter
 public enum Environment
@@ -1161,14 +1162,5 @@ public enum Environment
 			properties.directionalColor : properties.underwaterCausticsColor;
 		this.underwaterCausticsStrength = properties.underwaterCausticsStrength == 0 ?
 			properties.directionalStrength : properties.underwaterCausticsStrength;
-	}
-
-	public static float[] rgb(int r, int g, int b)
-	{
-		return new float[]{
-			HDUtils.gammaToLinear(r / 255f),
-			HDUtils.gammaToLinear(g / 255f),
-			HDUtils.gammaToLinear(b / 255f)
-		};
 	}
 }
