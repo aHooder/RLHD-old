@@ -28,6 +28,8 @@ package rs117.hd;
 import com.google.common.primitives.Ints;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import com.sun.jna.Native;
+import com.sun.jna.platform.win32.WinDef;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +54,8 @@ import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.opengl.GLUtil;
 import org.lwjgl.system.Callback;
 import org.lwjgl.system.Configuration;
+import org.lwjgl.system.Platform;
+import org.lwjgl.system.windows.User32;
 import rs117.hd.config.*;
 import rs117.hd.data.WaterType;
 import rs117.hd.data.materials.Material;
@@ -281,6 +285,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int pitch;
 	private int viewportOffsetX;
 	private int viewportOffsetY;
+	private long windowHandle;
+	private float dpiScalingFactor = 1;
 
 	// Uniforms
 	private int uniColorBlindnessIntensity;
@@ -529,6 +535,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				// force rebuild of main buffer provider to enable alpha channel
 				client.resizeCanvas();
 
+				if (Platform.get() == Platform.WINDOWS)
+				{
+					try
+					{
+						JFrame frame = (JFrame) SwingUtilities.getAncestorOfClass(JFrame.class, canvas);
+						if (frame != null)
+						{
+							windowHandle = com.sun.jna.Native.getComponentID(frame);
+						}
+					}
+					catch (Throwable ex)
+					{
+						log.warn("Unable to get the game window's native handle:", ex);
+					}
+				}
+
 				lastCanvasWidth = lastCanvasHeight = 0;
 				lastStretchedCanvasWidth = lastStretchedCanvasHeight = 0;
 				lastAntiAliasingMode = null;
@@ -612,6 +634,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			if (modelBufferUnordered != null)
 				modelBufferUnordered.destroy();
 			modelBufferUnordered = null;
+
+			windowHandle = 0;
 
 			// force main buffer provider rebuild to turn off alpha channel
 			client.resizeCanvas();
@@ -1256,6 +1280,23 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		pitch = client.getCameraPitch();
 		viewportOffsetX = client.getViewportXOffset();
 		viewportOffsetY = client.getViewportYOffset();
+		dpiScalingFactor = 1;
+		if (windowHandle != 0)
+		{
+			dpiScalingFactor = User32.GetDpiForWindow(windowHandle) / 96f;
+			log.info("DPI scaling factor: {}", dpiScalingFactor);
+
+			int width = client.getCanvasWidth();
+			int height = client.getCanvasHeight();
+			int fullWidth = (int) (width * dpiScalingFactor);
+			int fullHeight = (int) (height * dpiScalingFactor);
+
+//			viewportOffsetX = ((viewportOffsetX + width) - fullWidth) / 2;
+//			viewportOffsetY = ((viewportOffsetY + height) - fullHeight) / 2;
+			viewportOffsetX = 0;
+			viewportOffsetY = 0;
+		}
+
 
 		final Scene scene = client.getScene();
 		scene.setDrawDistance(getDrawDistance());
@@ -1591,8 +1632,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		elapsedTime += frameDeltaTime / 1000f;
 		lastFrameTime = System.currentTimeMillis();
 
-		final int canvasHeight = client.getCanvasHeight();
-		final int canvasWidth = client.getCanvasWidth();
+		final int canvasWidth = (int) (client.getCanvasWidth() * dpiScalingFactor);
+		final int canvasHeight = (int) (client.getCanvasHeight() * dpiScalingFactor);
 
 		try
 		{
@@ -1744,7 +1785,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				glUseProgram(0);
 			}
 
-			glDpiAwareViewport(renderWidthOff, renderCanvasHeight - renderViewportHeight - renderHeightOff, renderViewportWidth, renderViewportHeight);
+			glDpiAwareViewport(renderWidthOff, 0,
+//					renderCanvasHeight - renderViewportHeight - renderHeightOff,
+					renderViewportWidth, renderViewportHeight);
 
 			glUseProgram(glProgram);
 
@@ -1996,7 +2039,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 		// Use the texture bound in the first pass
 		glUseProgram(glUiProgram);
-		glUniform2i(uniTexSourceDimensions, canvasWidth, canvasHeight);
+		glUniform2i(uniTexSourceDimensions, client.getCanvasWidth(), client.getCanvasHeight());
 		glUniform1f(uniUiColorBlindnessIntensity, config.colorBlindnessIntensity() / 100.f);
 		glUniform4f(uniUiAlphaOverlay,
 			(overlayColor >> 16 & 0xFF) / 255f,
