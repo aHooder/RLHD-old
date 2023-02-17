@@ -36,6 +36,7 @@
 layout (location = 0) in ivec4 VertexPosition;
 layout (location = 1) in vec4 uv;
 layout (location = 2) in vec4 normal;
+layout (location = 3) in int depthLayer;
 
 #include uniforms/camera.glsl
 
@@ -49,6 +50,8 @@ out VertexData {
     vec4 color;
     vec4 uv;
     float fogAmount;
+    int priority;
+    int depthLayer;
 } OUT;
 
 #include utils/color_conversion.glsl
@@ -62,12 +65,15 @@ void main() {
     int ahsl = VertexPosition.w;
     vec3 rgb = jagexHslToRgb(ahsl & 0xffff);
     float alpha = 1 - float(ahsl >> 24 & 0xff) / 255.f;
+    int priority = ahsl >> 16 & 0xff;
 
     OUT.pos = vertex;
     OUT.normal = normal;
     OUT.color = vec4(srgbToLinear(rgb), alpha);
     OUT.uv = uv;
     OUT.fogAmount = 0;
+    OUT.priority = priority;
+    OUT.depthLayer = depthLayer;
 
     if (fogDepth > 0) {
         int fogWest = max(FOG_SCENE_EDGE_MIN, cameraX - drawDistance);

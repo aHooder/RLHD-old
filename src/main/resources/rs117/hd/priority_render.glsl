@@ -235,36 +235,42 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         vout[outOffset + myOffset * 3 + 2] = pos + thisrvC;
 
         if (uvOffset < 0) {
-            uvout[outOffset + myOffset * 3]     = vec4(0, 0, 0, 0);
-            uvout[outOffset + myOffset * 3 + 1] = vec4(0, 0, 0, 0);
-            uvout[outOffset + myOffset * 3 + 2] = vec4(0, 0, 0, 0);
+            uvout[outOffset + myOffset * 3]     = vec4(0);
+            uvout[outOffset + myOffset * 3 + 1] = vec4(0);
+            uvout[outOffset + myOffset * 3 + 2] = vec4(0);
         } else {
             uvout[outOffset + myOffset * 3]     = uv[uvOffset + localId * 3];
             uvout[outOffset + myOffset * 3 + 1] = uv[uvOffset + localId * 3 + 1];
             uvout[outOffset + myOffset * 3 + 2] = uv[uvOffset + localId * 3 + 2];
         }
 
-        vec4 normA, normB, normC;
-
         // Grab vertex normals from the correct buffer
-        normA = normal[offset + ssboOffset * 3    ];
-        normB = normal[offset + ssboOffset * 3 + 1];
-        normC = normal[offset + ssboOffset * 3 + 2];
+        vec4 normA = normal[offset + ssboOffset * 3    ];
+        vec4 normB = normal[offset + ssboOffset * 3 + 1];
+        vec4 normC = normal[offset + ssboOffset * 3 + 2];
 
         normA = vec4(normalize(normA.xyz), normA.w);
         normB = vec4(normalize(normB.xyz), normB.w);
         normC = vec4(normalize(normC.xyz), normC.w);
 
-        vec4 normrvA;
-        vec4 normrvB;
-        vec4 normrvC;
+        vec4 normrvA = rotate2(normA, orientation);
+        vec4 normrvB = rotate2(normB, orientation);
+        vec4 normrvC = rotate2(normC, orientation);
 
-        normrvA = rotate2(normA, orientation);
-        normrvB = rotate2(normB, orientation);
-        normrvC = rotate2(normC, orientation);
+        int facePrio = (thisrvA.w >> 16) & 0xff;// all vertices on the face have the same priority
+        int radius = (minfo.flags & 0x7fffffff) >> 12;
+        // thisDistance is the distance from the camera to the face,
+        // with the nearest face being at zero and the furthest being at radius * 2
+        int depthLayer = 1 + facePrio;
+        if (facePrio >= 10) {
+            int faceDist = face_distance(thisrvA, thisrvB, thisrvC, cameraYaw, 0);
+            if (faceDist > 0)
+                depthLayer -= 12;
+        }
+        int faceDepthOffset = minfo.depthOffset + 2 * radius * depthLayer - thisDistance;
 
-        normalout[outOffset + myOffset * 3]     = normrvA;
-        normalout[outOffset + myOffset * 3 + 1] = normrvB;
-        normalout[outOffset + myOffset * 3 + 2] = normrvC;
+        normalout[outOffset + myOffset * 3]     = NormalData(normrvA.x, normrvA.y, normrvA.z, normrvA.w, faceDepthOffset);
+        normalout[outOffset + myOffset * 3 + 1] = NormalData(normrvB.x, normrvB.y, normrvB.z, normrvB.w, faceDepthOffset);
+        normalout[outOffset + myOffset * 3 + 2] = NormalData(normrvC.x, normrvC.y, normrvC.z, normrvC.w, faceDepthOffset);
     }
 }

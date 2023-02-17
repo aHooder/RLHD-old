@@ -35,6 +35,7 @@
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
 
+uniform mat4 projectionMatrix;
 uniform mat4 lightProjectionMatrix;
 
 uniform float colorBlindnessIntensity;
@@ -71,6 +72,8 @@ flat in vec4 vColor[3];
 flat in vec3 vUv[3];
 flat in int vMaterialData[3];
 flat in int vTerrainData[3];
+flat in int facePriority;
+flat in float faceDepth;
 
 in FragmentData {
     float fogAmount;
@@ -90,6 +93,15 @@ out vec4 FragColor;
 #include utils/normals.glsl
 #include utils/specular.glsl
 #include utils/displacement.glsl
+
+vec3 HSVtoRGB(in vec3 HSV) {
+    float H   = HSV.x;
+    float R   = abs(H * 6.0 - 3.0) - 1.0;
+    float G   = 2.0 - abs(H * 6.0 - 2.0);
+    float B   = 2.0 - abs(H * 6.0 - 4.0);
+    vec3  RGB = clamp( vec3(R,G,B), 0.0, 1.0 );
+    return ((RGB - 1.0) * HSV.y + 1.0) * HSV.z;
+}
 
 vec2 worldUvs(float scale) {
     vec2 uv = IN.position.xz / (128 * scale);
@@ -780,4 +792,29 @@ void main() {
     }
 
     FragColor = outputColor;
+//    FragColor.rgb = HSVtoRGB(vec3(facePriority / 12.f, 1, srgbToLinear(faceDepth - .1)));
+//    FragColor.rgb = vec3(faceDepth, -faceDepth, 0);
+
+//    {
+//
+//        uvec2 windowSize = uvec2(765, 503);
+//        uint id = uint(gl_FragCoord.y) * windowSize.x + uint(gl_FragCoord.x);
+//        float alpha = id / float(windowSize.x * windowSize.y);
+//
+//        const uint depthRange = 18000u;
+//        id = modelIndex * depthRange;
+//        float sceneDepth = distance(camPos, IN.position) / float(depthRange);
+////        sceneDepth = 1 - gl_FragCoord.z;
+//        sceneDepth = 1 - sceneDepth;
+//        id += clamp(uint(sceneDepth * depthRange), 0u, depthRange);
+//
+////        alpha = facePriority / 11.;
+//
+////        FragColor.rgb = HSVtoRGB(vec3(modelIndex / 10000., 1, 1));
+//
+////        float depth = 1 - clamp(id / float(0xffffff), 0, 1);
+//        float depth = 1 - clamp(id / float(depthRange * 2000u), 0, 1);
+////        FragColor = vec4(vec3(gl_FragCoord.z), 1);
+////        gl_FragDepth = depth;
+//    }
 }

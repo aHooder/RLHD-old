@@ -62,23 +62,21 @@ void main() {
     vout[outOffset + myOffset * 3 + 2] = pos + thisC;
 
     if (uvOffset < 0) {
-        uvout[outOffset + myOffset * 3]     = vec4(0, 0, 0, 0);
-        uvout[outOffset + myOffset * 3 + 1] = vec4(0, 0, 0, 0);
-        uvout[outOffset + myOffset * 3 + 2] = vec4(0, 0, 0, 0);
+        uvout[outOffset + myOffset * 3]     = vec4(0);
+        uvout[outOffset + myOffset * 3 + 1] = vec4(0);
+        uvout[outOffset + myOffset * 3 + 2] = vec4(0);
     } else {
         uvout[outOffset + myOffset * 3]     = uv[uvOffset + localId * 3];
         uvout[outOffset + myOffset * 3 + 1] = uv[uvOffset + localId * 3 + 1];
         uvout[outOffset + myOffset * 3 + 2] = uv[uvOffset + localId * 3 + 2];
     }
 
-    vec4 normA, normB, normC;
-
     // Grab triangle normals from the correct buffer
-    normA = normal[offset + ssboOffset * 3    ];
-    normB = normal[offset + ssboOffset * 3 + 1];
-    normC = normal[offset + ssboOffset * 3 + 2];
+    vec4 normA = normal[offset + ssboOffset * 3    ];
+    vec4 normB = normal[offset + ssboOffset * 3 + 1];
+    vec4 normC = normal[offset + ssboOffset * 3 + 2];
 
-    normalout[outOffset + myOffset * 3]     = normA;
-    normalout[outOffset + myOffset * 3 + 1] = normB;
-    normalout[outOffset + myOffset * 3 + 2] = normC;
+    normalout[outOffset + myOffset * 3]     = NormalData(normA.x, normA.y, normA.z, normA.w, minfo.depthOffset);
+    normalout[outOffset + myOffset * 3 + 1] = NormalData(normB.x, normB.y, normB.z, normB.w, minfo.depthOffset);
+    normalout[outOffset + myOffset * 3 + 2] = NormalData(normC.x, normC.y, normC.z, normC.w, minfo.depthOffset);
 }

@@ -35,6 +35,15 @@ struct ModelInfo {
     int x;        // scene position x
     int y;        // scene position y
     int z;        // scene position z
+    int depthOffset;
+};
+
+struct NormalData {
+    float nx;
+    float ny;
+    float nz;
+    float terrainData;
+    int depthLayer;
 };
 
 layout(std430, binding = 0) readonly buffer ModelInfoBuffer {
@@ -62,5 +71,5 @@ layout(std430, binding = 5) writeonly buffer RenderBufferUvs {
 };
 
 layout(std430, binding = 6) writeonly buffer RenderBufferNormals {
-    vec4 normalout[];
+    NormalData normalout[];
 };

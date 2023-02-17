@@ -126,7 +126,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	public static final int NORMAL_SIZE = 4; // 4 floats per vertex
 
 	private static final String ENV_SHADER_PATH = "RLHD_SHADER_PATH";
-	private static final int[] eightIntWrite = new int[8];
+	private static final int[] modelBufferWrite = new int[9];
 
 	@Inject
 	private Client client;
@@ -242,7 +242,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int vboUiHandle;
 
 	private int fboSceneHandle;
-	private int rboSceneHandle;
+	private int rboSceneColorHandle;
+	private int rboSceneDepthHandle;
 
 	private int fboShadowMap;
 	private int texShadowMap;
@@ -278,6 +279,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int dynamicOffsetVertices;
 	private int dynamicOffsetUvs;
 	private int renderBufferOffset;
+	private int depthOffset;
 
 	private int lastCanvasWidth;
 	private int lastCanvasHeight;
@@ -424,9 +426,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			try
 			{
 				renderBufferOffset = 0;
-				fboSceneHandle = rboSceneHandle = 0; // AA FBO
+				depthOffset = 0;
+				fboSceneHandle = 0;
+				rboSceneColorHandle = 0;
+				rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
-				numModelsUnordered = numModelsSmall = numModelsLarge = 0;
+				numModelsUnordered = 0;
+				numModelsSmall = 0;
+				numModelsLarge = 0;
 				elapsedTime = 0;
 
 				AWTContext.loadNatives();
@@ -607,7 +614,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				shutdownInterfaceTexture();
 				shutdownPrograms();
 				shutdownVao();
-				shutdownAAFbo();
+				shutdownSceneFbo();
 				shutdownShadowMapFbo();
 			}
 
@@ -1177,7 +1184,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		updateBuffer(hUniformBufferLights, GL_UNIFORM_BUFFER, uniformBufferLights, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 	}
 
-	private void initAAFbo(int width, int height, int aaSamples)
+	private void initSceneFbo(int width, int height, int aaSamples)
 	{
 		if (OSType.getOSType() != OSType.MacOS)
 		{
@@ -1192,18 +1199,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		fboSceneHandle = glGenFramebuffers();
 		glBindFramebuffer(GL_FRAMEBUFFER, fboSceneHandle);
 
-		// Create color render buffer
-		rboSceneHandle = glGenRenderbuffers();
-		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneHandle);
+		// Create color renderbuffer
+		rboSceneColorHandle = glGenRenderbuffers();
+		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneColorHandle);
 		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_RGBA, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneHandle);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneColorHandle);
+
+		// Create depth renderbuffer
+		rboSceneDepthHandle = glGenRenderbuffers();
+		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneDepthHandle);
+		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_DEPTH_COMPONENT32, width, height);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboSceneDepthHandle);
 
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 
-	private void shutdownAAFbo()
+	private void shutdownSceneFbo()
 	{
 		if (fboSceneHandle != 0)
 		{
@@ -1211,10 +1224,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			fboSceneHandle = 0;
 		}
 
-		if (rboSceneHandle != 0)
+		if (rboSceneColorHandle != 0)
 		{
-			glDeleteRenderbuffers(rboSceneHandle);
-			rboSceneHandle = 0;
+			glDeleteRenderbuffers(rboSceneColorHandle);
+			rboSceneColorHandle = 0;
+		}
+
+		if (rboSceneDepthHandle != 0)
+		{
+			glDeleteRenderbuffers(rboSceneDepthHandle);
+			rboSceneDepthHandle = 0;
 		}
 	}
 
@@ -1307,6 +1326,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		// still redraw the previous frame's scene to emulate the client behavior of not painting over the
 		// viewport buffer.
 		renderBufferOffset = 0;
+		depthOffset = 0;
 
 
 		// UBO. Only the first 32 bytes get modified here, the rest is the constant sin/cos table.
@@ -1399,7 +1419,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			CL_MEM_WRITE_ONLY);
 		updateBuffer(hRenderBufferNormals,
 			GL_ARRAY_BUFFER,
-			renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+			renderBufferOffset * 20L, // each vertex is an ivec4, which is 16 bytes
 			GL_STREAM_DRAW,
 			CL_MEM_WRITE_ONLY);
 
@@ -1495,6 +1515,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				buffer.put(renderBufferOffset);
 				buffer.put(0);
 				buffer.put(localX).put(localY).put(localZ);
+				buffer.put(depthOffset++);
 
 				renderBufferOffset += bufferLength;
 			}
@@ -1507,6 +1528,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			buffer.put(renderBufferOffset);
 			buffer.put(0);
 			buffer.put(localX).put(localY).put(localZ);
+			buffer.put(depthOffset++);
 
 			renderBufferOffset += bufferLength;
 		}
@@ -1558,6 +1580,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				buffer.put(renderBufferOffset);
 				buffer.put(0);
 				buffer.put(localX).put(localY).put(localZ);
+				buffer.put(depthOffset++);
 
 				renderBufferOffset += bufferLength;
 			}
@@ -1570,6 +1593,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			buffer.put(renderBufferOffset);
 			buffer.put(0);
 			buffer.put(localX).put(localY).put(localZ);
+			buffer.put(depthOffset++);
 
 			renderBufferOffset += bufferLength;
 		}
@@ -1726,6 +1750,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				// render shadow depth map
 				glViewport(0, 0, config.shadowResolution().getValue(), config.shadowResolution().getValue());
 				glBindFramebuffer(GL_FRAMEBUFFER, fboShadowMap);
+				glClearDepthf(1);
 				glClear(GL_DEPTH_BUFFER_BIT);
 
 				glUseProgram(glShadowProgram);
@@ -1790,44 +1815,44 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			// Setup anti-aliasing
 			final AntiAliasingMode antiAliasingMode = config.antiAliasingMode();
 			final boolean aaEnabled = antiAliasingMode != AntiAliasingMode.DISABLED;
+
 			if (aaEnabled)
 			{
 				glEnable(GL_MULTISAMPLE);
-
-				final Dimension stretchedDimensions = client.getStretchedDimensions();
-
-				final int stretchedCanvasWidth = client.isStretchedEnabled() ? stretchedDimensions.width : canvasWidth;
-				final int stretchedCanvasHeight = client.isStretchedEnabled() ? stretchedDimensions.height : canvasHeight;
-
-				// Re-create fbo
-				if (lastStretchedCanvasWidth != stretchedCanvasWidth
-					|| lastStretchedCanvasHeight != stretchedCanvasHeight
-					|| lastAntiAliasingMode != antiAliasingMode)
-				{
-					shutdownAAFbo();
-
-					// Bind default FBO to check whether anti-aliasing is forced
-					glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
-					final int forcedAASamples = glGetInteger(GL_SAMPLES);
-					final int maxSamples = glGetInteger(GL_MAX_SAMPLES);
-					final int samples = forcedAASamples != 0 ? forcedAASamples :
-						Math.min(antiAliasingMode.getSamples(), maxSamples);
-
-					log.debug("AA samples: {}, max samples: {}, forced samples: {}", samples, maxSamples, forcedAASamples);
-
-					initAAFbo(stretchedCanvasWidth, stretchedCanvasHeight, samples);
-
-					lastStretchedCanvasWidth = stretchedCanvasWidth;
-					lastStretchedCanvasHeight = stretchedCanvasHeight;
-				}
-
-				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 			}
 			else
 			{
 				glDisable(GL_MULTISAMPLE);
-				shutdownAAFbo();
 			}
+
+			final Dimension stretchedDimensions = client.getStretchedDimensions();
+
+			final int stretchedCanvasWidth = client.isStretchedEnabled() ? stretchedDimensions.width : canvasWidth;
+			final int stretchedCanvasHeight = client.isStretchedEnabled() ? stretchedDimensions.height : canvasHeight;
+
+			// Re-create fbo
+			if (lastStretchedCanvasWidth != stretchedCanvasWidth
+				|| lastStretchedCanvasHeight != stretchedCanvasHeight
+				|| lastAntiAliasingMode != antiAliasingMode)
+			{
+				shutdownSceneFbo();
+
+				// Bind default FBO to check whether anti-aliasing is forced
+				glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+				final int forcedAASamples = glGetInteger(GL_SAMPLES);
+				final int maxSamples = glGetInteger(GL_MAX_SAMPLES);
+				final int samples = forcedAASamples != 0 ? forcedAASamples :
+					Math.min(antiAliasingMode.getSamples(), maxSamples);
+
+				log.debug("AA samples: {}, max samples: {}, forced samples: {}", samples, maxSamples, forcedAASamples);
+
+				initSceneFbo(stretchedCanvasWidth, stretchedCanvasHeight, samples);
+
+				lastStretchedCanvasWidth = stretchedCanvasWidth;
+				lastStretchedCanvasHeight = stretchedCanvasHeight;
+			}
+
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 
 			lastAntiAliasingMode = antiAliasingMode;
 
@@ -1838,7 +1863,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				fogColor[i] = HDUtils.linearToSrgb(fogColor[i]);
 			}
 			glClearColor(fogColor[0], fogColor[1], fogColor[2], 1f);
-			glClear(GL_COLOR_BUFFER_BIT);
+			glClearDepthf(1);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 			final int drawDistance = getDrawDistance();
 			int fogDepth = config.fogDepth();
@@ -1966,6 +1992,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glEnable(GL_CULL_FACE);
 			glCullFace(GL_BACK);
 
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_LEQUAL);
+
 			// Enable blending for alpha
 			glEnable(GL_BLEND);
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
@@ -1983,39 +2012,45 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			glEnableVertexAttribArray(2);
 			glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
-			glVertexAttribPointer(2, 4, GL_FLOAT, false, 0, 0);
+			glVertexAttribPointer(2, 4, GL_FLOAT, false, 5 * Float.BYTES, 0);
+
+			glEnableVertexAttribArray(3);
+			glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
+			glVertexAttribIPointer(3, 1, GL_INT, 5 * Float.BYTES, 4 * Float.BYTES);
 
 			glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+
+			if (Math.random() < .01)
+				System.out.printf("required depth bits: %.2f%n", Math.log(depthOffset) / Math.log(2));
 
 			glDisable(GL_BLEND);
 			glDisable(GL_CULL_FACE);
 
+			glDisable(GL_DEPTH_TEST);
+			glDepthFunc(GL_LESS);
+
 			glUseProgram(0);
 
-			if (aaEnabled)
-			{
-				int width = lastStretchedCanvasWidth;
-				int height = lastStretchedCanvasHeight;
+			int width = lastStretchedCanvasWidth;
+			int height = lastStretchedCanvasHeight;
 
-				if (OSType.getOSType() != OSType.MacOS)
-				{
-					final GraphicsConfiguration graphicsConfiguration = clientUI.getGraphicsConfiguration();
-					final AffineTransform transform = graphicsConfiguration.getDefaultTransform();
+			if (OSType.getOSType() != OSType.MacOS) {
+				final GraphicsConfiguration graphicsConfiguration = clientUI.getGraphicsConfiguration();
+				final AffineTransform transform = graphicsConfiguration.getDefaultTransform();
 
-					width = getScaledValue(transform.getScaleX(), width);
-					height = getScaledValue(transform.getScaleY(), height);
-				}
-
-				glBindFramebuffer(GL_READ_FRAMEBUFFER, fboSceneHandle);
-				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, awtContext.getFramebuffer(false));
-				glBlitFramebuffer(
-					0, 0, width, height,
-					0, 0, width, height,
-					GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-				// Reset
-				glBindFramebuffer(GL_READ_FRAMEBUFFER, awtContext.getFramebuffer(false));
+				width = getScaledValue(transform.getScaleX(), width);
+				height = getScaledValue(transform.getScaleY(), height);
 			}
+
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, fboSceneHandle);
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, awtContext.getFramebuffer(false));
+			glBlitFramebuffer(
+				0, 0, width, height,
+				0, 0, width, height,
+				GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+			// Reset
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
 			stagingBufferVertices.clear();
 			stagingBufferUvs.clear();
@@ -2162,6 +2197,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			case LOGIN_SCREEN:
 				// Avoid drawing the last frame's buffer during LOADING after LOGIN_SCREEN
 				renderBufferOffset = 0;
+				depthOffset = 0;
 				hasLoggedIn = false;
 				modelPusher.clearModelCache();
 				break;
@@ -2482,18 +2518,36 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			int faceCount = Math.min(MAX_TRIANGLE, model.getFaceCount());
 			int uvOffset = model.getUvBufferOffset();
 
-			eightIntWrite[0] = model.getBufferOffset() >> 2;
-			eightIntWrite[1] = uvOffset;
-			eightIntWrite[2] = faceCount;
-			eightIntWrite[3] = renderBufferOffset;
-			eightIntWrite[4] = model.getRadius() << 12 | orientation;
-			eightIntWrite[5] = x + client.getCameraX2();
-			eightIntWrite[6] = y + client.getCameraY2();
-			eightIntWrite[7] = z + client.getCameraZ2();
+			int maxPriority = 0;
+			boolean hasSpecialPriorities = false;
+			byte[] priorities = model.getFaceRenderPriorities();
+			if (priorities != null) {
+				for (byte priority : priorities) {
+					if (maxPriority < priority)
+						maxPriority = priority;
+					if (priority >= 10)
+						hasSpecialPriorities = true;
+				}
+			}
+			int layerSize = 2 * model.getRadius();
+			if (hasSpecialPriorities)
+				depthOffset += 2 * layerSize;
 
-			bufferForTriangles(faceCount).ensureCapacity(8).put(eightIntWrite);
+			modelBufferWrite[0] = model.getBufferOffset() >> 2;
+			modelBufferWrite[1] = uvOffset;
+			modelBufferWrite[2] = faceCount;
+			modelBufferWrite[3] = renderBufferOffset;
+			modelBufferWrite[4] = model.getRadius() << 12 | orientation;
+			modelBufferWrite[5] = x + client.getCameraX2();
+			modelBufferWrite[6] = y + client.getCameraY2();
+			modelBufferWrite[7] = z + client.getCameraZ2();
+			modelBufferWrite[8] = depthOffset;
+			depthOffset += layerSize * (1 + maxPriority);
+
+			bufferForTriangles(faceCount).ensureCapacity(9).put(modelBufferWrite);
 
 			renderBufferOffset += faceCount * 3;
+			// TODO: reserve only a single priority layer if the model only has priority 0 faces
 		}
 		else
 		{
@@ -2519,11 +2573,28 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			client.checkClickbox(model, orientation, pitchSin, pitchCos, yawSin, yawCos, x, y, z, hash);
 
-			eightIntWrite[3] = renderBufferOffset;
-			eightIntWrite[4] = model.getRadius() << 12 | orientation;
-			eightIntWrite[5] = x + client.getCameraX2();
-			eightIntWrite[6] = y + client.getCameraY2();
-			eightIntWrite[7] = z + client.getCameraZ2();
+			int maxPriority = 0;
+			boolean hasSpecialPriorities = false;
+			byte[] priorities = model.getFaceRenderPriorities();
+			if (priorities != null) {
+				for (byte priority : priorities) {
+					if (maxPriority < priority)
+						maxPriority = priority;
+					if (priority >= 10)
+						hasSpecialPriorities = true;
+				}
+			}
+			int layerSize = 2 * model.getRadius();
+			if (hasSpecialPriorities)
+				depthOffset += 2 * layerSize;
+
+			modelBufferWrite[3] = renderBufferOffset;
+			modelBufferWrite[4] = model.getRadius() << 12 | orientation;
+			modelBufferWrite[5] = x + client.getCameraX2();
+			modelBufferWrite[6] = y + client.getCameraY2();
+			modelBufferWrite[7] = z + client.getCameraZ2();
+			modelBufferWrite[8] = depthOffset;
+			depthOffset += layerSize * (1 + maxPriority);
 
 			TempModelInfo tempModelInfo = null;
 			int batchHash = 0;
@@ -2537,11 +2608,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			}
 
 			if (tempModelInfo != null && tempModelInfo.getFaceCount() == model.getFaceCount()) {
-				eightIntWrite[0] = tempModelInfo.getTempOffset();
-				eightIntWrite[1] = tempModelInfo.getTempUvOffset();
-				eightIntWrite[2] = tempModelInfo.getFaceCount();
+				modelBufferWrite[0] = tempModelInfo.getTempOffset();
+				modelBufferWrite[1] = tempModelInfo.getTempUvOffset();
+				modelBufferWrite[2] = tempModelInfo.getFaceCount();
 
-				bufferForTriangles(tempModelInfo.getFaceCount()).ensureCapacity(8).put(eightIntWrite);
+				bufferForTriangles(tempModelInfo.getFaceCount()).ensureCapacity(9).put(modelBufferWrite);
 
 				renderBufferOffset += tempModelInfo.getFaceCount() * 3;
 			} else {
@@ -2556,10 +2627,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				if (lengths[1] <= 0)
 					uvOffset = -1;
 
-				eightIntWrite[0] = vertexOffset;
-				eightIntWrite[1] = uvOffset;
-				eightIntWrite[2] = faceCount;
-				bufferForTriangles(faceCount).ensureCapacity(8).put(eightIntWrite);
+				modelBufferWrite[0] = vertexOffset;
+				modelBufferWrite[1] = uvOffset;
+				modelBufferWrite[2] = faceCount;
+				bufferForTriangles(faceCount).ensureCapacity(9).put(modelBufferWrite);
 
 				renderBufferOffset += lengths[0];
 

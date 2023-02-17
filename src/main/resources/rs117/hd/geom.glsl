@@ -45,12 +45,16 @@ in VertexData {
     vec4 color;
     vec4 uv;
     float fogAmount;
+    int priority;
+    int depthLayer;
 } IN[3];
 
 flat out vec4 vColor[3];
 flat out vec3 vUv[3];
 flat out int vMaterialData[3];
 flat out int vTerrainData[3];
+flat out int facePriority;
+flat out float faceDepth;
 
 out FragmentData {
     float fogAmount;
@@ -77,14 +81,43 @@ void main() {
         vTerrainData[i] = int(IN[i].normal.w);
     }
 
+    facePriority = IN[0].priority;
+//    facePriority = IN[0].depthLayer;
+//    uint depth = uint(IN[0].depthLayer);
+//    float depthf = 1 - IN[0].depthLayer / float(0xffffff);
+//
+//    // Lowest 30 bits are usable with 32-bit depth component
+//    // Bits 30 to 6 should be usable with 24-bit depth
+//    uint mantissaBits = depth & 0x007fffffu; // Bits 0-22
+//    uint expBits = depth & 0x1f800000u; // Bits 23-28
+//    uint topBit = depth & 0x20000000u; // Bit 29
+//    // Reshuffled and packed IEEE-754 floating point representation that goes from 0 to 1
+//    uint packedBits = mantissaBits | expBits << 1 | topBit >> 6;
+//    depthf = 1 - uintBitsToFloat(packedBits);
+//    faceDepth = depthf;
+
+    const int MIN_INT = 0x80000000;
+    const int MAX_INT = 0x7FFFFFFF;
+    int depth = IN[0].depthLayer;
+    float depthf = 1 - max(float(depth) / MAX_INT, -1);
+    depthf = max(-1, 1 - depth / float((1 << 28) - 1));
+    faceDepth = depthf;
+
     for (int i = 0; i < 3; i++) {
         OUT.texBlend = vec3(0);
         OUT.texBlend[i] = 1;
         OUT.fogAmount = IN[i].fogAmount;
         OUT.position = IN[i].pos;
         OUT.normal = flatNormals ? N : normalize(IN[i].normal.xyz);
-        gl_Position = projectionMatrix * vec4(IN[i].pos, 1.f);
-        EmitVertex();
+
+        vec4 proj = projectionMatrix * vec4(IN[i].pos, 1.f);
+        if (proj.w > 0) {
+            proj.xy /= proj.w;
+            proj.z = depthf;
+            proj.w = 1;
+            gl_Position = proj;
+            EmitVertex();
+        }
     }
 
     EndPrimitive();
