@@ -280,6 +280,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int dynamicOffsetUvs;
 	private int renderBufferOffset;
 	private int depthOffset;
+	private ArrayList<Integer> depthClearOffsets = new ArrayList<>();
 
 	private int lastCanvasWidth;
 	private int lastCanvasHeight;
@@ -425,8 +426,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		{
 			try
 			{
-				renderBufferOffset = 0;
-				depthOffset = 0;
+				resetRenderOffsets();
 				fboSceneHandle = 0;
 				rboSceneColorHandle = 0;
 				rboSceneDepthHandle = 0;
@@ -1208,7 +1208,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		// Create depth renderbuffer
 		rboSceneDepthHandle = glGenRenderbuffers();
 		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneDepthHandle);
-		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_DEPTH_COMPONENT32, width, height);
+		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_DEPTH_COMPONENT24, width, height);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboSceneDepthHandle);
 
 		// Reset
@@ -1325,8 +1325,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		// after this that don't involve a scene draw, like during LOADING/HOPPING/CONNECTION_LOST, we can
 		// still redraw the previous frame's scene to emulate the client behavior of not painting over the
 		// viewport buffer.
-		renderBufferOffset = 0;
-		depthOffset = 0;
+		resetRenderOffsets();
 
 
 		// UBO. Only the first 32 bytes get modified here, the rest is the constant sin/cos table.
@@ -1419,7 +1418,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			CL_MEM_WRITE_ONLY);
 		updateBuffer(hRenderBufferNormals,
 			GL_ARRAY_BUFFER,
-			renderBufferOffset * 20L, // each vertex is an ivec4, which is 16 bytes
+			renderBufferOffset * 20L, // each vertex is an ivec4 + an int, which is 20 bytes
 			GL_STREAM_DRAW,
 			CL_MEM_WRITE_ONLY);
 
@@ -1515,7 +1514,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				buffer.put(renderBufferOffset);
 				buffer.put(0);
 				buffer.put(localX).put(localY).put(localZ);
-				buffer.put(depthOffset++);
+				buffer.put(reserveDepthOffset(1));
 
 				renderBufferOffset += bufferLength;
 			}
@@ -1528,7 +1527,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			buffer.put(renderBufferOffset);
 			buffer.put(0);
 			buffer.put(localX).put(localY).put(localZ);
-			buffer.put(depthOffset++);
+			buffer.put(reserveDepthOffset(1));
 
 			renderBufferOffset += bufferLength;
 		}
@@ -1580,7 +1579,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				buffer.put(renderBufferOffset);
 				buffer.put(0);
 				buffer.put(localX).put(localY).put(localZ);
-				buffer.put(depthOffset++);
+				buffer.put(reserveDepthOffset(1));
 
 				renderBufferOffset += bufferLength;
 			}
@@ -1593,7 +1592,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			buffer.put(renderBufferOffset);
 			buffer.put(0);
 			buffer.put(localX).put(localY).put(localZ);
-			buffer.put(depthOffset++);
+			buffer.put(reserveDepthOffset(1));
 
 			renderBufferOffset += bufferLength;
 		}
@@ -1993,7 +1992,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glCullFace(GL_BACK);
 
 			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(GL_LEQUAL);
+			glDepthFunc(GL_LESS);
 
 			// Enable blending for alpha
 			glEnable(GL_BLEND);
@@ -2018,7 +2017,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
 			glVertexAttribIPointer(3, 1, GL_INT, 5 * Float.BYTES, 4 * Float.BYTES);
 
-			glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+			// Flipped buffers
+			int fromOffset = 0;
+			int end = Math.min(Math.min(
+				(int) (hRenderBufferVertices.size / 16L),
+				(int) (hRenderBufferUvs.size / 16L)),
+				(int) (hRenderBufferNormals.size / 20L));
+			for (int toOffset : depthClearOffsets) {
+				glDrawArrays(GL_TRIANGLES, end - toOffset, toOffset - fromOffset);
+				System.out.println("Clearing at " + toOffset);
+				glClear(GL_DEPTH_BUFFER_BIT);
+				fromOffset = toOffset;
+			}
+			if (fromOffset < renderBufferOffset)
+				glDrawArrays(GL_TRIANGLES, end - renderBufferOffset, renderBufferOffset - fromOffset);
 
 			if (Math.random() < .01)
 				System.out.printf("required depth bits: %.2f%n", Math.log(depthOffset) / Math.log(2));
@@ -2197,7 +2209,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			case LOGIN_SCREEN:
 				// Avoid drawing the last frame's buffer during LOADING after LOGIN_SCREEN
 				renderBufferOffset = 0;
-				depthOffset = 0;
+				resetRenderOffsets();
 				hasLoggedIn = false;
 				modelPusher.clearModelCache();
 				break;
@@ -2530,8 +2542,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				}
 			}
 			int layerSize = 2 * model.getRadius();
-			if (hasSpecialPriorities)
-				depthOffset += 2 * layerSize;
+			int precedingDepth = hasSpecialPriorities ? 2 * layerSize : 0;
+			int requiredDepth = precedingDepth + layerSize * (1 + maxPriority);
+			int depthLayer = precedingDepth + reserveDepthOffset(requiredDepth);
 
 			modelBufferWrite[0] = model.getBufferOffset() >> 2;
 			modelBufferWrite[1] = uvOffset;
@@ -2541,13 +2554,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			modelBufferWrite[5] = x + client.getCameraX2();
 			modelBufferWrite[6] = y + client.getCameraY2();
 			modelBufferWrite[7] = z + client.getCameraZ2();
-			modelBufferWrite[8] = depthOffset;
-			depthOffset += layerSize * (1 + maxPriority);
+			modelBufferWrite[8] = depthLayer;
 
 			bufferForTriangles(faceCount).ensureCapacity(9).put(modelBufferWrite);
 
 			renderBufferOffset += faceCount * 3;
-			// TODO: reserve only a single priority layer if the model only has priority 0 faces
 		}
 		else
 		{
@@ -2585,16 +2596,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				}
 			}
 			int layerSize = 2 * model.getRadius();
-			if (hasSpecialPriorities)
-				depthOffset += 2 * layerSize;
+			int precedingDepth = hasSpecialPriorities ? 2 * layerSize : 0;
+			int requiredDepth = precedingDepth + layerSize * (1 + maxPriority);
+			int depthLayer = precedingDepth + reserveDepthOffset(requiredDepth);
 
 			modelBufferWrite[3] = renderBufferOffset;
 			modelBufferWrite[4] = model.getRadius() << 12 | orientation;
 			modelBufferWrite[5] = x + client.getCameraX2();
 			modelBufferWrite[6] = y + client.getCameraY2();
 			modelBufferWrite[7] = z + client.getCameraZ2();
-			modelBufferWrite[8] = depthOffset;
-			depthOffset += layerSize * (1 + maxPriority);
+			modelBufferWrite[8] = depthLayer;
 
 			TempModelInfo tempModelInfo = null;
 			int batchHash = 0;
@@ -2651,6 +2662,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	public boolean drawFace(Model model, int face)
 	{
 		return false;
+	}
+
+	private int reserveDepthOffset(int numLayers) {
+		if (depthOffset + numLayers >= 1 << 24) {
+			depthClearOffsets.add(renderBufferOffset);
+			depthOffset = 0;
+		}
+		int offset = depthOffset;
+		depthOffset += numLayers;
+		return offset;
+	}
+
+	private void resetRenderOffsets() {
+		renderBufferOffset = 0;
+		depthOffset = 0;
+		depthClearOffsets.clear();
 	}
 
 	/**

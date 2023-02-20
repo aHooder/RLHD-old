@@ -82,25 +82,9 @@ void main() {
     }
 
     facePriority = IN[0].priority;
-//    facePriority = IN[0].depthLayer;
-//    uint depth = uint(IN[0].depthLayer);
-//    float depthf = 1 - IN[0].depthLayer / float(0xffffff);
-//
-//    // Lowest 30 bits are usable with 32-bit depth component
-//    // Bits 30 to 6 should be usable with 24-bit depth
-//    uint mantissaBits = depth & 0x007fffffu; // Bits 0-22
-//    uint expBits = depth & 0x1f800000u; // Bits 23-28
-//    uint topBit = depth & 0x20000000u; // Bit 29
-//    // Reshuffled and packed IEEE-754 floating point representation that goes from 0 to 1
-//    uint packedBits = mantissaBits | expBits << 1 | topBit >> 6;
-//    depthf = 1 - uintBitsToFloat(packedBits);
-//    faceDepth = depthf;
 
-    const int MIN_INT = 0x80000000;
-    const int MAX_INT = 0x7FFFFFFF;
-    int depth = IN[0].depthLayer;
-    float depthf = 1 - max(float(depth) / MAX_INT, -1);
-    depthf = max(-1, 1 - depth / float((1 << 28) - 1));
+    int depth = (1 << 23) - 2 - IN[0].depthLayer;
+    float depthf = depth / float((1 << 23) - 1);
     faceDepth = depthf;
 
     for (int i = 0; i < 3; i++) {

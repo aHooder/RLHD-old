@@ -213,21 +213,28 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
 
         uint ssboOffset = localId;
 
-        // we only have to order faces against others of the same priority
-        // calculate position this face will be in
-        for (int i = start; i < end; ++i) {
-            int d1 = dfs[i];
-            int theirId = d1 >> 16;
-            int theirDistance = d1 & 0xffff;
+        // Sorting is no longer necessary
+//        // we only have to order faces against others of the same priority
+//        // calculate position this face will be in
+//        for (int i = start; i < end; ++i) {
+//            int d1 = dfs[i];
+//            int theirId = d1 >> 16;
+//            int theirDistance = d1 & 0xffff;
+//
+//            // the closest faces draw last, so have the highest index
+//            // if two faces have the same distance, the one with the
+//            // higher id draws last
+//            if ((theirDistance > thisDistance)
+//            || (theirDistance == thisDistance && theirId < localId)) {
+//                ++myOffset;
+//            }
+//        }
 
-            // the closest faces draw last, so have the highest index
-            // if two faces have the same distance, the one with the
-            // higher id draws last
-            if ((theirDistance > thisDistance)
-            || (theirDistance == thisDistance && theirId < localId)) {
-                ++myOffset;
-            }
-        }
+        myOffset = int(localId);
+        // Flip the direction of the render buffers to prevent over-draw
+        // TODO: maybe store this in a UBO instead, or combine all buffers
+        int maxVertices = min(min(vout.length(), uvout.length()), normalout.length());
+        outOffset = maxVertices - outOffset - size * 3;
 
         // position vertices in scene and write to out buffer
         vout[outOffset + myOffset * 3]     = pos + thisrvA;

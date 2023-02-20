@@ -794,27 +794,4 @@ void main() {
     FragColor = outputColor;
 //    FragColor.rgb = HSVtoRGB(vec3(facePriority / 12.f, 1, srgbToLinear(faceDepth - .1)));
 //    FragColor.rgb = vec3(faceDepth, -faceDepth, 0);
-
-//    {
-//
-//        uvec2 windowSize = uvec2(765, 503);
-//        uint id = uint(gl_FragCoord.y) * windowSize.x + uint(gl_FragCoord.x);
-//        float alpha = id / float(windowSize.x * windowSize.y);
-//
-//        const uint depthRange = 18000u;
-//        id = modelIndex * depthRange;
-//        float sceneDepth = distance(camPos, IN.position) / float(depthRange);
-////        sceneDepth = 1 - gl_FragCoord.z;
-//        sceneDepth = 1 - sceneDepth;
-//        id += clamp(uint(sceneDepth * depthRange), 0u, depthRange);
-//
-////        alpha = facePriority / 11.;
-//
-////        FragColor.rgb = HSVtoRGB(vec3(modelIndex / 10000., 1, 1));
-//
-////        float depth = 1 - clamp(id / float(0xffffff), 0, 1);
-//        float depth = 1 - clamp(id / float(depthRange * 2000u), 0, 1);
-////        FragColor = vec4(vec3(gl_FragCoord.z), 1);
-////        gl_FragDepth = depth;
-//    }
 }

@@ -55,6 +55,9 @@ void main() {
     thisC = vb[offset + ssboOffset * 3 + 2];
 
     uint myOffset = localId;
+    // Flip the direction of the render buffers to prevent over-draw
+    int maxVertices = min(min(vout.length(), uvout.length()), normalout.length());
+    outOffset = maxVertices - outOffset - size * 3;
 
     // position vertices in scene and write to out buffer
     vout[outOffset + myOffset * 3]     = pos + thisA;
