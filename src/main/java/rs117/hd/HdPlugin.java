@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -128,6 +129,7 @@ import rs117.hd.utils.Mat4;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
+import rs117.hd.utils.SunCalc;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
@@ -372,6 +374,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	private int uniSaturation;
 	private int uniContrast;
 	private int uniLightDir;
+	private int uniIsNight;
 	private int uniShadowMaxBias;
 	private int uniShadowsEnabled;
 	private int uniUnderwaterEnvironment;
@@ -895,6 +898,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		uniPointLightsCount = glGetUniformLocation(glProgram, "pointLightsCount");
 		uniColorBlindnessIntensity = glGetUniformLocation(glProgram, "colorBlindnessIntensity");
 		uniLightDir = glGetUniformLocation(glProgram, "lightDir");
+		uniIsNight = glGetUniformLocation(glProgram, "isNight");
 		uniShadowMaxBias = glGetUniformLocation(glProgram, "shadowMaxBias");
 		uniShadowsEnabled = glGetUniformLocation(glProgram, "shadowsEnabled");
 		uniUnderwaterEnvironment = glGetUniformLocation(glProgram, "underwaterEnvironment");
@@ -1810,12 +1814,62 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			int uvBuffer = hRenderBufferUvs.glBufferId;
 			int normalBuffer = hRenderBufferNormals.glBufferId;
 
+			boolean isNight = false;
 			float lightPitch = (float) Math.toRadians(environmentManager.currentLightPitch);
 			float lightYaw = (float) Math.toRadians(environmentManager.currentLightYaw);
+
+			// Test different angles interactively
+//			lightPitch = (float) Math.PI * 2 * client.getMouseCanvasPosition().getY() / client.getCanvasHeight();
+//			lightYaw = (float) Math.PI * 2 * client.getMouseCanvasPosition().getX() / client.getCanvasWidth();
+
+			{
+//				Instant instant = Instant.ofEpochMilli(System.currentTimeMillis() * 24); // Hour-long days
+				Instant instant = Instant.ofEpochMilli(System.currentTimeMillis() * 86400 / 10); // 10-second days
+				double latitude, longitude;
+				switch (currentRegion) {
+					case AUSTRALIA:
+						// Sydney
+						latitude = -33.8478035;
+						longitude = 150.6016588;
+						break;
+					case GERMANY:
+						// Berlin
+						latitude = 52.5063843;
+						longitude = 13.0944281;
+						break;
+					case UNITED_STATES_OF_AMERICA:
+						// Chicago
+						latitude = 41.8337329;
+						longitude = -87.7319639;
+						break;
+					default:
+					case UNITED_KINGDOM:
+						// Cambridge
+						latitude = 52.1951;
+						longitude = 0.1313;
+						break;
+				}
+
+				double[] angles = SunCalc.getPosition(instant.toEpochMilli(), latitude, longitude);
+				double angleFromZenith = Math.abs(angles[1] - Math.PI / 2);
+				isNight = angleFromZenith > Math.PI / 2;
+				if (isNight) {
+					// Switch to moon angles
+					angles = SunCalc.getMoonPosition(instant.toEpochMilli(), latitude, longitude);
+					angleFromZenith = Math.abs(angles[1] - Math.PI / 2);
+					if (angleFromZenith > Math.PI / 2) {
+						// Moon is below the horizon, disable moon light
+					}
+				}
+
+				lightPitch = (float) -angles[1];
+				lightYaw = (float) (angles[0] + Math.PI);
+			}
+
+			float[] lightProjectionMatrix = Mat4.identity();
 			float[] lightViewMatrix = Mat4.rotateX(lightPitch);
 			Mat4.mul(lightViewMatrix, Mat4.rotateY(-lightYaw));
 
-			float[] lightProjectionMatrix = Mat4.identity();
 			if (configShadowsEnabled && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0.0f)
 			{
 				// render shadow depth map
@@ -2025,6 +2079,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			glUniform3fv(uniUnderwaterCausticsColor, environmentManager.currentUnderwaterCausticsColor);
 			glUniform1f(uniUnderwaterCausticsStrength, environmentManager.currentUnderwaterCausticsStrength);
 
+			glUniform1i(uniIsNight, isNight ? 1 : 0);
 			glUniform3f(uniLightDir, lightViewMatrix[2], lightViewMatrix[6], lightViewMatrix[10]);
 
 			// use a curve to calculate max bias value based on the density of the shadow map
