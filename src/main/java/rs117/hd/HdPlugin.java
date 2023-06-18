@@ -65,6 +65,7 @@ import net.runelite.api.TextureProvider;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.hooks.DrawCallbacks;
@@ -423,10 +424,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 	public ShadowMode configShadowMode = ShadowMode.OFF;
 
 	public int[] camTarget = new int[3];
+	private int cameraHash;
+	private float[] lightProjectionMatrix = Mat4.identity();
 
 	private boolean running;
 	private boolean hasLoggedIn;
 	private boolean lwjglInitted;
+	private boolean updateCamera;
+	private boolean updateGeometry;
 
 	@Setter
 	private boolean isInGauntlet = false;
@@ -756,6 +761,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 	private void initPrograms() throws ShaderException
 	{
+		cameraHash = 0; // Force camera uniforms to update
 		configShadowMode = config.shadowMode();
 		configShadowsEnabled = configShadowMode != ShadowMode.OFF;
 
@@ -1384,39 +1390,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		environmentManager.update(sceneContext, targetWorldPosition);
 		lightManager.update(sceneContext);
 
-		// Only reset the target buffer offset right before drawing the scene. That way if there are frames
-		// after this that don't involve a scene draw, like during LOADING/HOPPING/CONNECTION_LOST, we can
-		// still redraw the previous frame's scene to emulate the client behavior of not painting over the
-		// viewport buffer.
-		renderBufferOffset = 0;
-
-
-		// UBO. Only the first 32 bytes get modified here, the rest is the constant sin/cos table.
-		// We can reuse the vertex buffer since it isn't used yet.
-		sceneContext.stagingBufferVertices.clear();
-		sceneContext.stagingBufferVertices.ensureCapacity(32);
-		IntBuffer uniformBuf = sceneContext.stagingBufferVertices.getBuffer();
-		uniformBuf
-			.put(yaw)
-			.put(pitch)
-			.put(client.getCenterX())
-			.put(client.getCenterY())
-			.put(client.getScale())
-			.put(cameraX)
-			.put(cameraY)
-			.put(cameraZ);
-		uniformBuf.flip();
-
-		glBindBuffer(GL_UNIFORM_BUFFER, hUniformBufferCamera.glBufferId);
-		glBufferSubData(GL_UNIFORM_BUFFER, 0, uniformBuf);
-		glBindBuffer(GL_UNIFORM_BUFFER, 0);
-
+		// Bind UBOs
 		glBindBufferBase(GL_UNIFORM_BUFFER, 0, hUniformBufferCamera.glBufferId);
-		uniformBuf.clear();
-
-		// Bind materials UBO
 		glBindBufferBase(GL_UNIFORM_BUFFER, 1, hUniformBufferMaterials.glBufferId);
 		glBindBufferBase(GL_UNIFORM_BUFFER, 2, hUniformBufferWaterTypes.glBufferId);
+		glBindBufferBase(GL_UNIFORM_BUFFER, 3, hUniformBufferLights.glBufferId);
 
 		// Update lights UBO
 		uniformBufferLights.clear();
@@ -1442,7 +1420,35 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		}
 		uniformBufferLights.clear();
 
-		glBindBufferBase(GL_UNIFORM_BUFFER, 3, hUniformBufferLights.glBufferId);
+		if (updateGeometry)
+		{
+			// Only reset the target buffer offset right before drawing the scene. That way if there are frames
+			// after this that don't involve a scene draw, like during LOADING/HOPPING/CONNECTION_LOST, we can
+			// still redraw the previous frame's scene to emulate the client behavior of not painting over the
+			// viewport buffer.
+			renderBufferOffset = 0;
+		}
+
+		int[] cameraUniforms = {
+			yaw,
+			pitch,
+			client.getCenterX(),
+			client.getCenterY(),
+			client.getScale(),
+			cameraX,
+			cameraY,
+			cameraZ
+		};
+		int hash = ModelHasher.fastIntHash(cameraUniforms, -1);
+		if (hash != cameraHash)
+		{
+			cameraHash = hash;
+			updateCamera = true;
+
+			glBindBuffer(GL_UNIFORM_BUFFER, hUniformBufferCamera.glBufferId);
+			glBufferSubData(GL_UNIFORM_BUFFER, 0, cameraUniforms);
+			glBindBuffer(GL_UNIFORM_BUFFER, 0);
+		}
 	}
 
 	@Override
@@ -1451,50 +1457,58 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		if (!running)
 			return;
 
-		// Geometry buffers
-		sceneContext.stagingBufferVertices.flip();
-		sceneContext.stagingBufferUvs.flip();
-		sceneContext.stagingBufferNormals.flip();
-		updateBuffer(hStagingBufferVertices, GL_ARRAY_BUFFER,
-			dynamicOffsetVertices * VERTEX_SIZE, sceneContext.stagingBufferVertices.getBuffer(),
-			GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		updateBuffer(hStagingBufferUvs, GL_ARRAY_BUFFER,
-			dynamicOffsetUvs * UV_SIZE, sceneContext.stagingBufferUvs.getBuffer(),
-			GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		updateBuffer(hStagingBufferNormals, GL_ARRAY_BUFFER,
-			dynamicOffsetVertices * NORMAL_SIZE, sceneContext.stagingBufferNormals.getBuffer(),
-			GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		sceneContext.stagingBufferVertices.clear();
-		sceneContext.stagingBufferUvs.clear();
-		sceneContext.stagingBufferNormals.clear();
+		if (updateGeometry)
+		{
+			// Geometry buffers
+			sceneContext.stagingBufferVertices.flip();
+			sceneContext.stagingBufferUvs.flip();
+			sceneContext.stagingBufferNormals.flip();
+			updateBuffer(hStagingBufferVertices, GL_ARRAY_BUFFER,
+				dynamicOffsetVertices * VERTEX_SIZE, sceneContext.stagingBufferVertices.getBuffer(),
+				GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			updateBuffer(hStagingBufferUvs, GL_ARRAY_BUFFER,
+				dynamicOffsetUvs * UV_SIZE, sceneContext.stagingBufferUvs.getBuffer(),
+				GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			updateBuffer(hStagingBufferNormals, GL_ARRAY_BUFFER,
+				dynamicOffsetVertices * NORMAL_SIZE, sceneContext.stagingBufferNormals.getBuffer(),
+				GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			sceneContext.stagingBufferVertices.clear();
+			sceneContext.stagingBufferUvs.clear();
+			sceneContext.stagingBufferNormals.clear();
 
-		// Model buffers
-		modelBufferUnordered.flip();
-		modelBufferSmall.flip();
-		modelBufferLarge.flip();
-		updateBuffer(hModelBufferLarge, GL_ARRAY_BUFFER, modelBufferLarge.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		updateBuffer(hModelBufferSmall, GL_ARRAY_BUFFER, modelBufferSmall.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		updateBuffer(hModelBufferUnordered, GL_ARRAY_BUFFER, modelBufferUnordered.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-		modelBufferUnordered.clear();
-		modelBufferSmall.clear();
-		modelBufferLarge.clear();
+			// Model buffers
+			modelBufferUnordered.flip();
+			modelBufferSmall.flip();
+			modelBufferLarge.flip();
+			updateBuffer(hModelBufferLarge, GL_ARRAY_BUFFER, modelBufferLarge.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			updateBuffer(hModelBufferSmall, GL_ARRAY_BUFFER, modelBufferSmall.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			updateBuffer(hModelBufferUnordered, GL_ARRAY_BUFFER, modelBufferUnordered.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			modelBufferUnordered.clear();
+			modelBufferSmall.clear();
+			modelBufferLarge.clear();
 
-		// Output buffers
-		updateBuffer(hRenderBufferVertices,
-			GL_ARRAY_BUFFER,
-			renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
-			GL_STREAM_DRAW,
-			CL_MEM_WRITE_ONLY);
-		updateBuffer(hRenderBufferUvs,
-			GL_ARRAY_BUFFER,
-			renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
-			GL_STREAM_DRAW,
-			CL_MEM_WRITE_ONLY);
-		updateBuffer(hRenderBufferNormals,
-			GL_ARRAY_BUFFER,
-			renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
-			GL_STREAM_DRAW,
-			CL_MEM_WRITE_ONLY);
+			// Output buffers
+			updateBuffer(hRenderBufferVertices,
+				GL_ARRAY_BUFFER,
+				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				GL_STREAM_DRAW,
+				CL_MEM_WRITE_ONLY);
+			updateBuffer(hRenderBufferUvs,
+				GL_ARRAY_BUFFER,
+				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				GL_STREAM_DRAW,
+				CL_MEM_WRITE_ONLY);
+			updateBuffer(hRenderBufferNormals,
+				GL_ARRAY_BUFFER,
+				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				GL_STREAM_DRAW,
+				CL_MEM_WRITE_ONLY);
+		}
+
+		if (!updateGeometry && !updateCamera)
+		{
+			return;
+		}
 
 		if (computeMode == ComputeMode.OPENCL)
 		{
@@ -1555,7 +1569,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		SceneTilePaint paint, int tileZ, int tileX, int tileY,
 		int zoom, int centerX, int centerY)
 	{
-		if (paint.getBufferLen() > 0)
+		if (updateGeometry && paint.getBufferLen() > 0)
 		{
 			final int localX = tileX * Perspective.LOCAL_TILE_SIZE;
 			final int localY = 0;
@@ -1618,7 +1632,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			SceneTileModel model, int tileZ, int tileX, int tileY,
 			int zoom, int centerX, int centerY)
 	{
-		if (model.getBufferLen() > 0)
+		if (updateGeometry && model.getBufferLen() > 0)
 		{
 			final int localX = tileX * Perspective.LOCAL_TILE_SIZE;
 			final int localY = 0;
@@ -1801,11 +1815,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			int uvBuffer = hRenderBufferUvs.glBufferId;
 			int normalBuffer = hRenderBufferNormals.glBufferId;
 
-			float[] lightProjectionMatrix = Mat4.identity();
 			float lightPitch = environmentManager.currentLightPitch;
 			float lightYaw = environmentManager.currentLightYaw;
 
-			if (configShadowsEnabled && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0.0f)
+			if (configShadowsEnabled && updateGeometry && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0.0f)
 			{
 				// render shadow depth map
 				glViewport(0, 0, config.shadowResolution().getValue(), config.shadowResolution().getValue());
@@ -1834,6 +1847,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				final float minScale = 0.4f;
 				final float scaleMultiplier = 1.0f - (getDrawDistance() / (maxDrawDistance * maxScale));
 				float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
+				lightProjectionMatrix = Mat4.identity();
 				Mat4.mul(lightProjectionMatrix, Mat4.scale(scale, scale, scale));
 				Mat4.mul(lightProjectionMatrix, Mat4.ortho(width, height, near));
 				Mat4.mul(lightProjectionMatrix, Mat4.rotateX((float) Math.toRadians(lightPitch)));
@@ -2105,6 +2119,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			frameModelInfoMap.clear();
 		}
+
+		updateCamera = false;
+		updateGeometry = false;
 
 		// Texture on UI
 		drawUi(overlayColor, canvasHeight, canvasWidth);
@@ -2537,6 +2554,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 			client.checkClickbox(model, orientation, pitchSin, pitchCos, yawSin, yawCos, x, y, z, hash);
 
+			if (!updateGeometry)
+			{
+				return;
+			}
+
 			int faceCount = Math.min(MAX_TRIANGLE, model.getFaceCount());
 			int uvOffset = model.getUvBufferOffset();
 
@@ -2576,6 +2598,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 			}
 
 			client.checkClickbox(model, orientation, pitchSin, pitchCos, yawSin, yawCos, x, y, z, hash);
+
+			if (!updateGeometry)
+			{
+				return;
+			}
 
 			eightIntWrite[3] = renderBufferOffset;
 			eightIntWrite[4] = model.getRadius() << 12 | orientation;
@@ -2839,6 +2866,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				glBuffer.cl_mem = clCreateFromGLBuffer(openCLManager.context, clFlags, glBuffer.glBufferId, null);
 			}
 		}
+	}
+
+	@Subscribe
+	public void onClientTick(ClientTick clientTick)
+	{
+		updateGeometry = true;
 	}
 
 	@Subscribe
