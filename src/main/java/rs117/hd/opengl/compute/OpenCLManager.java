@@ -24,47 +24,46 @@
  */
 package rs117.hd.opengl.compute;
 
-import com.google.common.base.Charsets;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Objects;
+import java.nio.IntBuffer;
+import java.nio.LongBuffer;
 import javax.inject.Singleton;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.plugins.gpu.template.Template;
 import net.runelite.client.util.OSType;
 import net.runelite.rlawt.AWTContext;
-import org.jocl.CL;
-import static org.jocl.CL.*;
-import org.jocl.CLException;
-import org.jocl.Pointer;
-import org.jocl.Sizeof;
-import org.jocl.cl_command_queue;
-import org.jocl.cl_context;
-import org.jocl.cl_context_properties;
-import org.jocl.cl_device_id;
-import org.jocl.cl_event;
-import org.jocl.cl_kernel;
-import org.jocl.cl_mem;
-import org.jocl.cl_platform_id;
-import org.jocl.cl_program;
-import org.lwjgl.BufferUtils;
-import rs117.hd.HdPlugin;
-import rs117.hd.opengl.shader.Template;
+import org.lwjgl.PointerBuffer;
+import org.lwjgl.opencl.APPLEGLSharing;
+import org.lwjgl.opencl.CL;
+import org.lwjgl.opencl.CL10GL;
+import org.lwjgl.opencl.CLCapabilities;
+import org.lwjgl.opencl.CLContextCallback;
+import org.lwjgl.system.Configuration;
+import org.lwjgl.system.MemoryStack;
 import rs117.hd.utils.buffer.GLBuffer;
 
-@SuppressWarnings("deprecation")
+import static org.lwjgl.opencl.CL10.*;
+import static org.lwjgl.opencl.CL12.*;
+import static org.lwjgl.opencl.KHRGLSharing.CL_GLX_DISPLAY_KHR;
+import static org.lwjgl.opencl.KHRGLSharing.CL_GL_CONTEXT_KHR;
+import static org.lwjgl.opencl.KHRGLSharing.CL_WGL_HDC_KHR;
+import static org.lwjgl.system.MemoryUtil.NULL;
+import static org.lwjgl.system.MemoryUtil.memASCII;
+import static org.lwjgl.system.MemoryUtil.memUTF8;
+import static rs117.hd.HdPlugin.MAX_TRIANGLE;
+import static rs117.hd.HdPlugin.SMALL_TRIANGLE_COUNT;
+
 @Singleton
 @Slf4j
 public class OpenCLManager
 {
-	private static final String GL_SHARING_PLATFORM_EXT = "cl_khr_gl_sharing";
-
 	private static final String KERNEL_NAME_UNORDERED = "computeUnordered";
 	private static final String KERNEL_NAME_LARGE = "computeLarge";
 
 	private static final int MIN_WORK_GROUP_SIZE = 256;
-	private static final int SMALL_SIZE = HdPlugin.SMALL_TRIANGLE_COUNT;
-	private static final int LARGE_SIZE = HdPlugin.MAX_TRIANGLE;
+	private static final int SMALL_SIZE = SMALL_TRIANGLE_COUNT;
+	private static final int LARGE_SIZE = MAX_TRIANGLE;
 	//  struct shared_data {
 	//      int totalNum[12];
 	//      int totalDistance[12];
@@ -78,248 +77,175 @@ public class OpenCLManager
 	private int largeFaceCount;
 	private int smallFaceCount;
 
-	private cl_platform_id platform;
-	private cl_device_id device;
-	public cl_context context;
-	private cl_command_queue commandQueue;
+	private long device;
+	@Getter
+	private long context;
+	private long commandQueue;
 
-	private cl_program programUnordered;
-	private cl_program programSmall;
-	private cl_program programLarge;
+	private long programUnordered;
+	private long programSmall;
+	private long programLarge;
 
-	private cl_kernel kernelUnordered;
-	private cl_kernel kernelSmall;
-	private cl_kernel kernelLarge;
+	private long kernelUnordered;
+	private long kernelSmall;
+	private long kernelLarge;
+
+	static
+	{
+		Configuration.OPENCL_EXPLICIT_INIT.set(true);
+	}
 
 	public void init(AWTContext awtContext)
 	{
-		CL.setExceptionsEnabled(true);
-
-		switch (OSType.getOSType())
+		try (MemoryStack stack = MemoryStack.stackPush())
 		{
-			case Windows:
-			case Linux:
-				initPlatform();
-				initDevice();
-				initContext(awtContext);
-				break;
-			case MacOS:
-				initMacOS(awtContext);
-				break;
-			default:
-				throw new RuntimeException("Unsupported OS Type " + OSType.getOSType().name());
+			initContext(awtContext, stack);
+			ensureMinWorkGroupSize();
+			initQueue();
+			compilePrograms(stack);
 		}
-		ensureMinWorkGroupSize();
-		initQueue();
-		compilePrograms();
 	}
 
 	public void cleanup()
 	{
-		if (programUnordered != null)
-		{
-			CL.clReleaseProgram(programUnordered);
-			programUnordered = null;
-		}
+		log.debug("Calling cleanup");
+		clReleaseKernel(kernelUnordered);
+		clReleaseKernel(kernelSmall);
+		clReleaseKernel(kernelLarge);
 
-		if (programSmall != null)
-		{
-			CL.clReleaseProgram(programSmall);
-			programSmall = null;
-		}
+		clReleaseProgram(programUnordered);
+		clReleaseProgram(programSmall);
+		clReleaseProgram(programLarge);
 
-		if (programLarge != null)
-		{
-			CL.clReleaseProgram(programLarge);
-			programLarge = null;
-		}
+		clReleaseCommandQueue(commandQueue);
 
-		if (kernelUnordered != null)
-		{
-			CL.clReleaseKernel(kernelUnordered);
-			kernelUnordered = null;
-		}
+		clReleaseContext(context);
 
-		if (kernelSmall != null)
-		{
-			CL.clReleaseKernel(kernelSmall);
-			kernelSmall = null;
-		}
+		clReleaseDevice(device);
 
-		if (kernelLarge != null)
-		{
-			CL.clReleaseKernel(kernelLarge);
-			kernelLarge = null;
-		}
-
-		if (commandQueue != null)
-		{
-			CL.clReleaseCommandQueue(commandQueue);
-			commandQueue = null;
-		}
-
-		if (context != null)
-		{
-			CL.clReleaseContext(context);
-			context = null;
-		}
-
-		if (device != null)
-		{
-			CL.clReleaseDevice(device);
-			device = null;
-		}
+		CL.destroy();
 	}
 
-	private String logPlatformInfo(cl_platform_id platform, int param)
+	private void initContext(AWTContext awtContext, MemoryStack stack)
 	{
-		long[] size = new long[1];
-		clGetPlatformInfo(platform, param, 0, null, size);
+		CL.create();
 
-		byte[] buffer = new byte[(int) size[0]];
-		clGetPlatformInfo(platform, param, buffer.length, Pointer.to(buffer), null);
-		String platformInfo = new String(buffer, Charsets.UTF_8);
-		log.debug("Platform: {}, {}", stringFor_cl_platform_info(param), platformInfo);
-		return platformInfo;
-	}
-
-	private void logBuildInfo(cl_program program, int param)
-	{
-		long[] size = new long[1];
-		clGetProgramBuildInfo(program, device, param, 0, null, size);
-
-		ByteBuffer buffer = BufferUtils.createByteBuffer((int) size[0]);
-		clGetProgramBuildInfo(program, device, param, buffer.limit(), Pointer.toBuffer(buffer), null);
-
-		switch (param)
+		IntBuffer pi = stack.mallocInt(1);
+		checkCLError(clGetPlatformIDs(null, pi));
+		if (pi.get(0) == 0)
 		{
-			case CL_PROGRAM_BUILD_STATUS:
-				log.debug("Build status: {}, {}", stringFor_cl_program_build_info(param), stringFor_cl_build_status(buffer.getInt()));
-				break;
-			case CL_PROGRAM_BINARY_TYPE:
-				log.debug("Binary type: {}, {}", stringFor_cl_program_build_info(param), stringFor_cl_program_binary_type(buffer.getInt()));
-				break;
-			case CL_PROGRAM_BUILD_LOG:
-				String buildLog = StandardCharsets.US_ASCII.decode(buffer).toString();
-				log.trace("Build log: {}, {}", stringFor_cl_program_build_info(param), buildLog);
-				break;
-			case CL_PROGRAM_BUILD_OPTIONS:
-				String message = StandardCharsets.US_ASCII.decode(buffer).toString();
-				log.debug("Build options: {}, {}", stringFor_cl_program_build_info(param), message);
-				break;
-			default:
-				throw new IllegalArgumentException();
-		}
-	}
-
-	private void initPlatform()
-	{
-		int[] platformCount = new int[1];
-		clGetPlatformIDs(0, null, platformCount);
-		if (platformCount[0] == 0)
-		{
-			throw new RuntimeException("No compute platforms found");
+			throw new RuntimeException("No OpenCL platforms found.");
 		}
 
-		cl_platform_id[] platforms = new cl_platform_id[platformCount[0]];
-		clGetPlatformIDs(platforms.length, platforms, null);
+		PointerBuffer platforms = stack.mallocPointer(pi.get(0));
+		checkCLError(clGetPlatformIDs(platforms, (IntBuffer) null));
 
-		for (cl_platform_id platform : platforms)
+		PointerBuffer ctxProps = stack.mallocPointer(7);
+		if (OSType.getOSType() == OSType.MacOS)
 		{
-			log.debug("Found cl_platform_id {}", platform);
-			logPlatformInfo(platform, CL_PLATFORM_PROFILE);
-			logPlatformInfo(platform, CL_PLATFORM_VERSION);
-			logPlatformInfo(platform, CL_PLATFORM_NAME);
-			logPlatformInfo(platform, CL_PLATFORM_VENDOR);
-			String[] extensions = logPlatformInfo(platform, CL_PLATFORM_EXTENSIONS).split(" ");
-			if (Arrays.asList(extensions).contains(GL_SHARING_PLATFORM_EXT))
-			{
-				this.platform = platform;
-			}
-		}
-
-		if (this.platform == null)
-		{
-			throw new RuntimeException("Platform does not support OpenGL buffer sharing");
-		}
-
-		log.debug("Selected cl_platform_id {}", platform);
-	}
-
-	private void initDevice()
-	{
-		int[] deviceCount = new int[1];
-		clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, null, deviceCount);
-		if (deviceCount[0] == 0)
-		{
-			throw new RuntimeException("No compute devices found");
-		}
-
-		cl_device_id[] devices = new cl_device_id[(int) deviceCount[0]];
-		clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, devices.length, devices, null);
-
-		for (cl_device_id device : devices)
-		{
-			long[] size = new long[1];
-			clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, 0, null, size);
-
-			byte[] devInfoBuf = new byte[(int) size[0]];
-			clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, devInfoBuf.length, Pointer.to(devInfoBuf), null);
-
-			log.debug("Found cl_device_id: {}", device);
-			log.debug("Device extensions: {}", new String(devInfoBuf, Charsets.UTF_8));
-		}
-
-		device = devices[0];
-		log.debug("Selected cl_device_id {}", device);
-	}
-
-	private void initContext(AWTContext awtContext)
-	{
-		// set computation platform
-		cl_context_properties contextProps = new cl_context_properties();
-		contextProps.addProperty(CL_CONTEXT_PLATFORM, platform);
-		contextProps.addProperty(CL_GL_CONTEXT_KHR, awtContext.getGLContext());
-
-		if (OSType.getOSType() == OSType.Linux)
-		{
-			contextProps.addProperty(CL_GLX_DISPLAY_KHR, awtContext.getGLXDisplay());
+			ctxProps
+				.put(CL_CONTEXT_PLATFORM)
+				.put(0)
+				.put(APPLEGLSharing.CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE)
+				.put(awtContext.getCGLShareGroup())
+				.put(0)
+				.flip();
 		}
 		else if (OSType.getOSType() == OSType.Windows)
 		{
-			contextProps.addProperty(CL_WGL_HDC_KHR, awtContext.getWGLHDC());
+			ctxProps
+				.put(CL_CONTEXT_PLATFORM)
+				.put(0)
+				.put(CL_GL_CONTEXT_KHR)
+				.put(awtContext.getGLContext())
+				.put(CL_WGL_HDC_KHR)
+				.put(awtContext.getWGLHDC())
+				.put(0)
+				.flip();
+		}
+		else if (OSType.getOSType() == OSType.Linux)
+		{
+			ctxProps
+				.put(CL_CONTEXT_PLATFORM)
+				.put(0)
+				.put(CL_GL_CONTEXT_KHR)
+				.put(awtContext.getGLContext())
+				.put(CL_GLX_DISPLAY_KHR)
+				.put(awtContext.getGLXDisplay())
+				.put(0)
+				.flip();
+		}
+		else
+		{
+			throw new RuntimeException("unsupported platform");
 		}
 
-		log.debug("Creating context with props: {}", contextProps);
-		context = clCreateContext(contextProps, 1, new cl_device_id[]{device}, null, null, null);
-		log.debug("Created compute context {}", context);
-	}
+		IntBuffer errcode_ret = stack.callocInt(1);
+		for (int p = 0; p < platforms.capacity(); p++)
+		{
+			long platform = platforms.get(p);
+			ctxProps.put(1, platform);
 
-	private void initMacOS(AWTContext awtContext)
-	{
-		long cglContext = awtContext.getGLContext();
-		long cglShareGroup = awtContext.getCGLShareGroup();
-		log.info("{} {}", cglContext, cglShareGroup);
+			CLCapabilities platformCaps = CL.createPlatformCapabilities(platform);
 
-		// build context props
-		cl_context_properties contextProps = new cl_context_properties();
-		contextProps.addProperty(CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE, cglShareGroup);
+			log.debug("Platform profile: {}", getPlatformInfoStringUTF8(platform, CL_PLATFORM_PROFILE));
+			log.debug("Platform version: {}", getPlatformInfoStringUTF8(platform, CL_PLATFORM_VERSION));
+			log.debug("Platform name: {}", getPlatformInfoStringUTF8(platform, CL_PLATFORM_NAME));
+			log.debug("Platform vendor: {}", getPlatformInfoStringUTF8(platform, CL_PLATFORM_VENDOR));
+			log.debug("Platform extensions: {}", getPlatformInfoStringUTF8(platform, CL_PLATFORM_EXTENSIONS));
 
-		// ask macos to make the context for us
-		log.debug("Creating context with props: {}", contextProps);
-		context = clCreateContext(contextProps, 0, null, null, null, null);
+			checkCLError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, null, pi));
 
-		// pull the compute device out of the provided context
-		device = new cl_device_id();
-		clGetGLContextInfoAPPLE(context, cglContext, CL_CGL_DEVICE_FOR_CURRENT_VIRTUAL_SCREEN_APPLE, Sizeof.cl_device_id, Pointer.to(device), null);
+			PointerBuffer devices = stack.mallocPointer(pi.get(0));
+			checkCLError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, devices, (IntBuffer) null));
 
-		log.debug("Got macOS CLGL compute device {}", device);
+			for (int d = 0; d < devices.capacity(); d++)
+			{
+				long device = devices.get(d);
+
+				CLCapabilities deviceCaps = CL.createDeviceCapabilities(device, platformCaps);
+
+				log.debug("Device id {}", device);
+				log.debug("\tCL_DEVICE_NAME: {}", getDeviceInfoStringUTF8(device, CL_DEVICE_NAME));
+				log.debug("\tCL_DEVICE_VENDOR: {}", getDeviceInfoStringUTF8(device, CL_DEVICE_VENDOR));
+				log.debug("\tCL_DRIVER_VERSION: {}", getDeviceInfoStringUTF8(device, CL_DRIVER_VERSION));
+				log.debug("\tCL_DEVICE_PROFILE: {}", getDeviceInfoStringUTF8(device, CL_DEVICE_PROFILE));
+				log.debug("\tCL_DEVICE_VERSION: {}", getDeviceInfoStringUTF8(device, CL_DEVICE_VERSION));
+				log.debug("\tCL_DEVICE_EXTENSIONS: {}", getDeviceInfoStringUTF8(device, CL_DEVICE_EXTENSIONS));
+				log.debug("\tCL_DEVICE_TYPE: {}", getDeviceInfoLong(device, CL_DEVICE_TYPE));
+				log.debug("\tCL_DEVICE_VENDOR_ID: {}", getDeviceInfoInt(device, CL_DEVICE_VENDOR_ID));
+				log.debug("\tCL_DEVICE_MAX_COMPUTE_UNITS: {}", getDeviceInfoInt(device, CL_DEVICE_MAX_COMPUTE_UNITS));
+				log.debug("\tCL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: {}", getDeviceInfoInt(device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS));
+				log.debug("\tCL_DEVICE_MAX_WORK_GROUP_SIZE: {}", getDeviceInfoPointer(device, CL_DEVICE_MAX_WORK_GROUP_SIZE));
+				log.debug("\tCL_DEVICE_MAX_CLOCK_FREQUENCY: {}", getDeviceInfoInt(device, CL_DEVICE_MAX_CLOCK_FREQUENCY));
+				log.debug("\tCL_DEVICE_ADDRESS_BITS: {}", getDeviceInfoInt(device, CL_DEVICE_ADDRESS_BITS));
+				log.debug("\tCL_DEVICE_AVAILABLE: {}", getDeviceInfoInt(device, CL_DEVICE_AVAILABLE) != 0);
+				log.debug("\tCL_DEVICE_COMPILER_AVAILABLE: {}", (getDeviceInfoInt(device, CL_DEVICE_COMPILER_AVAILABLE) != 0));
+
+				if (!deviceCaps.cl_khr_gl_sharing && !deviceCaps.cl_APPLE_gl_sharing)
+				{
+					continue;
+				}
+
+				long context = clCreateContext(ctxProps, device, CLContextCallback.create((errinfo, private_info, cb, user_data) ->
+					log.error("[LWJGL] cl_context_callback: {}", memUTF8(errinfo))), NULL, errcode_ret);
+				checkCLError(errcode_ret);
+
+				this.device = device;
+				this.context = context;
+				return;
+			}
+
+			throw new RuntimeException("Unable to find compute device");
+		}
+
+		throw new RuntimeException("Unable to find compute platform");
 	}
 
 	private void ensureMinWorkGroupSize()
 	{
 		long[] maxWorkGroupSize = new long[1];
-		clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, Sizeof.size_t, Pointer.to(maxWorkGroupSize), null);
+		clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, maxWorkGroupSize, null);
 		log.debug("Device CL_DEVICE_MAX_WORK_GROUP_SIZE: {}", maxWorkGroupSize[0]);
 
 		if (maxWorkGroupSize[0] < MIN_WORK_GROUP_SIZE)
@@ -338,42 +264,43 @@ public class OpenCLManager
 	private void initQueue()
 	{
 		long[] l = new long[1];
-		clGetDeviceInfo(device, CL_DEVICE_QUEUE_PROPERTIES, Sizeof.cl_long, Pointer.to(l), null);
+		clGetDeviceInfo(device, CL_DEVICE_QUEUE_PROPERTIES, l, null);
 
-		commandQueue = clCreateCommandQueue(context, device, l[0] & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, null);
+		commandQueue = clCreateCommandQueue(context, device, l[0] & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, (int[]) null);
 		log.debug("Created command_queue {}, properties {}", commandQueue, l[0] & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 	}
 
-	private cl_program compileProgram(String programSource)
+	private long compileProgram(MemoryStack stack, String programSource)
 	{
 		log.trace("Compiling program:\n {}", programSource);
-		cl_program program = clCreateProgramWithSource(context, 1, new String[]{programSource}, null, null);
+		IntBuffer errcode_ret = stack.callocInt(1);
+		long program = clCreateProgramWithSource(context, programSource, errcode_ret);
+		checkCLError(errcode_ret);
 
-		try
+		int err = clBuildProgram(program, device, "", null, 0);
+		if (err != CL_SUCCESS)
 		{
-			clBuildProgram(program, 0, null, null, null, null);
-		}
-		catch (CLException e)
-		{
-			logBuildInfo(program, CL_PROGRAM_BUILD_LOG);
-			throw e;
+			String errstr = getProgramBuildInfoStringASCII(program, device, CL_PROGRAM_BUILD_LOG);
+			throw new RuntimeException(errstr);
 		}
 
-		logBuildInfo(program, CL_PROGRAM_BUILD_STATUS);
-		logBuildInfo(program, CL_PROGRAM_BINARY_TYPE);
-		logBuildInfo(program, CL_PROGRAM_BUILD_OPTIONS);
-		logBuildInfo(program, CL_PROGRAM_BUILD_LOG);
+		log.debug("Build status: {}", getProgramBuildInfoInt(program, device, CL_PROGRAM_BUILD_STATUS));
+		log.debug("Binary type: {}", getProgramBuildInfoInt(program, device, CL_PROGRAM_BINARY_TYPE));
+		log.debug("Build options: {}", getProgramBuildInfoStringASCII(program, device, CL_PROGRAM_BUILD_OPTIONS));
+		log.debug("Build log: {}", getProgramBuildInfoStringASCII(program, device, CL_PROGRAM_BUILD_LOG));
 		return program;
 	}
 
-	private cl_kernel getKernel(cl_program program, String kernelName)
+	private long getKernel(MemoryStack stack, long program, String kernelName)
 	{
-		cl_kernel kernel = clCreateKernel(program, kernelName, null);
+		IntBuffer errcode_ret = stack.callocInt(1);
+		long kernel = clCreateKernel(program, kernelName, errcode_ret);
+		checkCLError(errcode_ret);
 		log.debug("Loaded kernel {} for program {}", kernelName, program);
 		return kernel;
 	}
 
-	private void compilePrograms()
+	private void compilePrograms(MemoryStack stack)
 	{
 		Template templateSmall = new Template()
 			.addInclude(OpenCLManager.class)
@@ -388,108 +315,207 @@ public class OpenCLManager
 		String small = templateSmall.load("comp.cl");
 		String large = templateLarge.load("comp.cl");
 
-		programUnordered = compileProgram(unordered);
-		programSmall = compileProgram(small);
-		programLarge = compileProgram(large);
+		programUnordered = compileProgram(stack, unordered);
+		programSmall = compileProgram(stack, small);
+		programLarge = compileProgram(stack, large);
 
-		kernelUnordered = getKernel(programUnordered, KERNEL_NAME_UNORDERED);
-		kernelSmall = getKernel(programSmall, KERNEL_NAME_LARGE);
-		kernelLarge = getKernel(programLarge, KERNEL_NAME_LARGE);
+		kernelUnordered = getKernel(stack, programUnordered, KERNEL_NAME_UNORDERED);
+		kernelSmall = getKernel(stack, programSmall, KERNEL_NAME_LARGE);
+		kernelLarge = getKernel(stack, programLarge, KERNEL_NAME_LARGE);
 	}
 
 	public void compute(
 		GLBuffer uniformBufferCamera,
-		int numUnorderedModels, int numSmallModels, int numLargeModels,
+		int unorderedModels, int smallModels, int largeModels,
 		GLBuffer modelBufferUnordered, GLBuffer modelBufferSmall, GLBuffer modelBufferLarge,
 		GLBuffer stagingBufferVertices, GLBuffer stagingBufferUvs, GLBuffer stagingBufferNormals,
 		GLBuffer renderBufferVertices, GLBuffer renderBufferUvs, GLBuffer renderBufferNormals
 	)
 	{
-		cl_mem[] glBuffersAll = {
-			uniformBufferCamera.cl_mem,
-			modelBufferUnordered.cl_mem,
-			modelBufferSmall.cl_mem,
-			modelBufferLarge.cl_mem,
-			stagingBufferVertices.cl_mem,
-			stagingBufferUvs.cl_mem,
-			stagingBufferNormals.cl_mem,
-			renderBufferVertices.cl_mem,
-			renderBufferUvs.cl_mem,
-			renderBufferNormals.cl_mem
-		};
-		cl_mem[] glBuffers = Arrays.stream(glBuffersAll)
-			.filter(Objects::nonNull)
-			.toArray(cl_mem[]::new);
-
-		cl_event acquireGLBuffers = new cl_event();
-		clEnqueueAcquireGLObjects(commandQueue, glBuffers.length, glBuffers, 0, null, acquireGLBuffers);
-
-		cl_event[] computeEvents = {
-			new cl_event(),
-			new cl_event(),
-			new cl_event()
-		};
-		int numComputeEvents = 0;
-
-		if (numUnorderedModels > 0)
+		try (MemoryStack stack = MemoryStack.stackPush())
 		{
-			clSetKernelArg(kernelUnordered, 0, Sizeof.cl_mem, modelBufferUnordered.ptr());
-			clSetKernelArg(kernelUnordered, 1, Sizeof.cl_mem, stagingBufferVertices.ptr());
-			clSetKernelArg(kernelUnordered, 2, Sizeof.cl_mem, stagingBufferUvs.ptr());
-			clSetKernelArg(kernelUnordered, 3, Sizeof.cl_mem, stagingBufferNormals.ptr());
-			clSetKernelArg(kernelUnordered, 4, Sizeof.cl_mem, renderBufferVertices.ptr());
-			clSetKernelArg(kernelUnordered, 5, Sizeof.cl_mem, renderBufferUvs.ptr());
-			clSetKernelArg(kernelUnordered, 6, Sizeof.cl_mem, renderBufferNormals.ptr());
+			PointerBuffer glBuffers = stack.mallocPointer(10)
+				.put(uniformBufferCamera.clBuffer)
+				.put(modelBufferUnordered.clBuffer)
+				.put(modelBufferSmall.clBuffer)
+				.put(modelBufferLarge.clBuffer)
+				.put(stagingBufferVertices.clBuffer)
+				.put(stagingBufferUvs.clBuffer)
+				.put(stagingBufferNormals.clBuffer)
+				.put(renderBufferVertices.clBuffer)
+				.put(renderBufferUvs.clBuffer)
+				.put(renderBufferNormals.clBuffer)
+				.flip();
 
-			// queue compute call after acquireGLBuffers
-			clEnqueueNDRangeKernel(commandQueue, kernelUnordered, 1, null,
-				new long[]{numUnorderedModels * 6L}, new long[]{6}, 1, new cl_event[]{acquireGLBuffers}, computeEvents[numComputeEvents++]);
-		}
+			PointerBuffer acquireEvent = stack.mallocPointer(1);
+			CL10GL.clEnqueueAcquireGLObjects(commandQueue, glBuffers, null, acquireEvent);
 
-		if (numSmallModels > 0)
-		{
-			clSetKernelArg(kernelSmall, 0, (SHARED_SIZE + SMALL_SIZE) * Integer.BYTES, null);
-			clSetKernelArg(kernelSmall, 1, Sizeof.cl_mem, modelBufferSmall.ptr());
-			clSetKernelArg(kernelSmall, 2, Sizeof.cl_mem, stagingBufferVertices.ptr());
-			clSetKernelArg(kernelSmall, 3, Sizeof.cl_mem, stagingBufferUvs.ptr());
-			clSetKernelArg(kernelSmall, 4, Sizeof.cl_mem, stagingBufferNormals.ptr());
-			clSetKernelArg(kernelSmall, 5, Sizeof.cl_mem, renderBufferVertices.ptr());
-			clSetKernelArg(kernelSmall, 6, Sizeof.cl_mem, renderBufferUvs.ptr());
-			clSetKernelArg(kernelSmall, 7, Sizeof.cl_mem, renderBufferNormals.ptr());
-			clSetKernelArg(kernelSmall, 8, Sizeof.cl_mem, uniformBufferCamera.ptr());
+			PointerBuffer computeEvents = stack.mallocPointer(3);
+			if (unorderedModels > 0)
+			{
+				clSetKernelArg1p(kernelUnordered, 0, modelBufferUnordered.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 1, stagingBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 2, stagingBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 3, stagingBufferNormals.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 4, renderBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 5, renderBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelUnordered, 6, renderBufferNormals.clBuffer);
 
-			clEnqueueNDRangeKernel(commandQueue, kernelSmall, 1, null,
-				new long[]{(long) numSmallModels * (SMALL_SIZE / smallFaceCount)}, new long[]{SMALL_SIZE / smallFaceCount}, 1, new cl_event[]{acquireGLBuffers}, computeEvents[numComputeEvents++]);
-		}
+				// queue compute call after acquireGLBuffers
+				clEnqueueNDRangeKernel(commandQueue, kernelUnordered, 1, null,
+					stack.pointers(unorderedModels * 6L), stack.pointers(6),
+					acquireEvent, computeEvents);
+				computeEvents.position(computeEvents.position() + 1);
+			}
 
-		if (numLargeModels > 0)
-		{
-			clSetKernelArg(kernelLarge, 0, (SHARED_SIZE + LARGE_SIZE) * Integer.BYTES, null);
-			clSetKernelArg(kernelLarge, 1, Sizeof.cl_mem, modelBufferLarge.ptr());
-			clSetKernelArg(kernelLarge, 2, Sizeof.cl_mem, stagingBufferVertices.ptr());
-			clSetKernelArg(kernelLarge, 3, Sizeof.cl_mem, stagingBufferUvs.ptr());
-			clSetKernelArg(kernelLarge, 4, Sizeof.cl_mem, stagingBufferNormals.ptr());
-			clSetKernelArg(kernelLarge, 5, Sizeof.cl_mem, renderBufferVertices.ptr());
-			clSetKernelArg(kernelLarge, 6, Sizeof.cl_mem, renderBufferUvs.ptr());
-			clSetKernelArg(kernelLarge, 7, Sizeof.cl_mem, renderBufferNormals.ptr());
-			clSetKernelArg(kernelLarge, 8, Sizeof.cl_mem, uniformBufferCamera.ptr());
+			if (smallModels > 0)
+			{
+				clSetKernelArg(kernelSmall, 0, (SHARED_SIZE + SMALL_SIZE) * Integer.BYTES);
+				clSetKernelArg1p(kernelSmall, 1, modelBufferSmall.clBuffer);
+				clSetKernelArg1p(kernelSmall, 2, stagingBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelSmall, 3, stagingBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelSmall, 4, stagingBufferNormals.clBuffer);
+				clSetKernelArg1p(kernelSmall, 5, renderBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelSmall, 6, renderBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelSmall, 7, renderBufferNormals.clBuffer);
+				clSetKernelArg1p(kernelSmall, 8, uniformBufferCamera.clBuffer);
 
-			clEnqueueNDRangeKernel(commandQueue, kernelLarge, 1, null,
-				new long[]{(long) numLargeModels * (LARGE_SIZE / largeFaceCount)}, new long[]{LARGE_SIZE / largeFaceCount}, 1, new cl_event[]{acquireGLBuffers}, computeEvents[numComputeEvents++]);
-		}
+				clEnqueueNDRangeKernel(commandQueue, kernelSmall, 1, null,
+					stack.pointers(smallModels * (SMALL_SIZE / smallFaceCount)), stack.pointers(SMALL_SIZE / smallFaceCount),
+					acquireEvent, computeEvents);
+				computeEvents.position(computeEvents.position() + 1);
+			}
 
-		if (numComputeEvents == 0)
-		{
-			clEnqueueReleaseGLObjects(commandQueue, glBuffers.length, glBuffers, 0, null, null);
-		}
-		else
-		{
-			clEnqueueReleaseGLObjects(commandQueue, glBuffers.length, glBuffers, numComputeEvents, computeEvents, null);
+			if (largeModels > 0)
+			{
+				clSetKernelArg(kernelLarge, 0, (SHARED_SIZE + LARGE_SIZE) * Integer.BYTES);
+				clSetKernelArg1p(kernelLarge, 1, modelBufferLarge.clBuffer);
+				clSetKernelArg1p(kernelLarge, 2, stagingBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelLarge, 3, stagingBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelLarge, 4, stagingBufferNormals.clBuffer);
+				clSetKernelArg1p(kernelLarge, 5, renderBufferVertices.clBuffer);
+				clSetKernelArg1p(kernelLarge, 6, renderBufferUvs.clBuffer);
+				clSetKernelArg1p(kernelLarge, 7, renderBufferNormals.clBuffer);
+				clSetKernelArg1p(kernelLarge, 8, uniformBufferCamera.clBuffer);
+
+				clEnqueueNDRangeKernel(commandQueue, kernelLarge, 1, null,
+					stack.pointers(largeModels * (LARGE_SIZE / largeFaceCount)), stack.pointers(LARGE_SIZE / largeFaceCount),
+					acquireEvent, computeEvents);
+				computeEvents.position(computeEvents.position() + 1);
+			}
+
+			if (computeEvents.position() == 0)
+			{
+				CL10GL.clEnqueueReleaseGLObjects(commandQueue, glBuffers, null, null);
+			}
+			else
+			{
+				computeEvents.flip();
+				CL10GL.clEnqueueReleaseGLObjects(commandQueue, glBuffers, computeEvents, null);
+			}
 		}
 	}
 
 	public void finish()
 	{
 		clFinish(commandQueue);
+	}
+
+	private static String getPlatformInfoStringUTF8(long cl_platform_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			PointerBuffer pp = stack.mallocPointer(1);
+			checkCLError(clGetPlatformInfo(cl_platform_id, param_name, (ByteBuffer) null, pp));
+			int bytes = (int) pp.get(0);
+
+			ByteBuffer buffer = stack.malloc(bytes);
+			checkCLError(clGetPlatformInfo(cl_platform_id, param_name, buffer, null));
+
+			return memUTF8(buffer, bytes - 1);
+		}
+	}
+
+	private static long getDeviceInfoLong(long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			LongBuffer pl = stack.mallocLong(1);
+			checkCLError(clGetDeviceInfo(cl_device_id, param_name, pl, null));
+			return pl.get(0);
+		}
+	}
+
+	private static int getDeviceInfoInt(long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			IntBuffer pl = stack.mallocInt(1);
+			checkCLError(clGetDeviceInfo(cl_device_id, param_name, pl, null));
+			return pl.get(0);
+		}
+	}
+
+	private static long getDeviceInfoPointer(long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			PointerBuffer pp = stack.mallocPointer(1);
+			checkCLError(clGetDeviceInfo(cl_device_id, param_name, pp, null));
+			return pp.get(0);
+		}
+	}
+
+	private static String getDeviceInfoStringUTF8(long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			PointerBuffer pp = stack.mallocPointer(1);
+			checkCLError(clGetDeviceInfo(cl_device_id, param_name, (ByteBuffer) null, pp));
+			int bytes = (int) pp.get(0);
+
+			ByteBuffer buffer = stack.malloc(bytes);
+			checkCLError(clGetDeviceInfo(cl_device_id, param_name, buffer, null));
+
+			return memUTF8(buffer, bytes - 1);
+		}
+	}
+
+	private static int getProgramBuildInfoInt(long cl_program_id, long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			IntBuffer pl = stack.mallocInt(1);
+			checkCLError(clGetProgramBuildInfo(cl_program_id, cl_device_id, param_name, pl, null));
+			return pl.get(0);
+		}
+	}
+
+	private static String getProgramBuildInfoStringASCII(long cl_program_id, long cl_device_id, int param_name)
+	{
+		try (MemoryStack stack = MemoryStack.stackPush())
+		{
+			PointerBuffer pp = stack.mallocPointer(1);
+			checkCLError(clGetProgramBuildInfo(cl_program_id, cl_device_id, param_name, (ByteBuffer) null, pp));
+			int bytes = (int) pp.get(0);
+
+			ByteBuffer buffer = stack.malloc(bytes);
+			checkCLError(clGetProgramBuildInfo(cl_program_id, cl_device_id, param_name, buffer, null));
+
+			return memASCII(buffer, bytes - 1);
+		}
+	}
+
+	private static void checkCLError(IntBuffer errcode)
+	{
+		checkCLError(errcode.get(errcode.position()));
+	}
+
+	private static void checkCLError(int errcode)
+	{
+		if (errcode != CL_SUCCESS)
+		{
+			throw new RuntimeException(String.format("OpenCL error [%d]", errcode));
+		}
 	}
 }

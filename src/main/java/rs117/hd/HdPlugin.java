@@ -85,7 +85,6 @@ import net.runelite.client.ui.DrawManager;
 import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.util.OSType;
 import net.runelite.rlawt.AWTContext;
-import org.jocl.CL;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GLCapabilities;
@@ -127,7 +126,8 @@ import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
-import static org.jocl.CL.*;
+import static org.lwjgl.opencl.CL10.*;
+import static org.lwjgl.opencl.CL10GL.clCreateFromGLBuffer;
 import static org.lwjgl.opengl.GL43C.*;
 import static rs117.hd.HdPluginConfig.CONFIG_GROUP;
 import static rs117.hd.HdPluginConfig.KEY_LEGACY_GREY_COLORS;
@@ -503,8 +503,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 				computeMode = OSType.getOSType() == OSType.MacOS ? ComputeMode.OPENCL : ComputeMode.OPENGL;
 
 				// lwjgl defaults to lwjgl- + user.name, but this breaks if the username would cause an invalid path
-				// to be created, and also breaks if both 32 and 64 bit lwjgl versions try to run at once.
-				Configuration.SHARED_LIBRARY_EXTRACT_DIRECTORY.set("lwjgl-rl-" + System.getProperty("os.arch", "unknown"));
+				// to be created.
+				Configuration.SHARED_LIBRARY_EXTRACT_DIRECTORY.set("lwjgl-rl");
 
 				glCaps = GL.createCapabilities();
 
@@ -932,7 +932,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 
 	private void shutdownPrograms()
 	{
-		openCLManager.cleanup();
+		if (computeMode == ComputeMode.OPENCL)
+		{
+			openCLManager.cleanup();
+		}
 
 		if (glProgram != 0)
 		{
@@ -1097,10 +1100,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		}
 		glBuffer.size = -1;
 
-		if (glBuffer.cl_mem != null)
+		if (glBuffer.clBuffer != 0)
 		{
-			CL.clReleaseMemObject(glBuffer.cl_mem);
-			glBuffer.cl_mem = null;
+			clReleaseMemObject(glBuffer.clBuffer);
+			glBuffer.clBuffer = 0;
 		}
 	}
 
@@ -2822,21 +2825,21 @@ public class HdPlugin extends Plugin implements DrawCallbacks
 		if (computeMode == ComputeMode.OPENCL)
 		{
 			// cleanup previous buffer
-			if (glBuffer.cl_mem != null)
+			if (glBuffer.clBuffer != 0)
 			{
-				CL.clReleaseMemObject(glBuffer.cl_mem);
+				clReleaseMemObject(glBuffer.clBuffer);
 			}
 
 			// allocate new
 			if (glBuffer.size == 0)
 			{
 				// opencl does not allow 0-size gl buffers, it will segfault on macos
-				glBuffer.cl_mem = null;
+				glBuffer.clBuffer = 0;
 			}
 			else
 			{
 				assert glBuffer.size > 0 : "Size -1 should not reach this point";
-				glBuffer.cl_mem = clCreateFromGLBuffer(openCLManager.context, clFlags, glBuffer.glBufferId, null);
+				glBuffer.clBuffer = clCreateFromGLBuffer(openCLManager.getContext(), clFlags, glBuffer.glBufferId, (IntBuffer) null);
 			}
 		}
 	}
