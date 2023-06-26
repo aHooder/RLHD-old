@@ -52,12 +52,13 @@ import static rs117.hd.utils.ResourcePath.path;
 
 @Singleton
 @Slf4j
-public class TextureManager
-{
-	private static final String[] SUPPORTED_IMAGE_EXTENSIONS = { "png", "jpg" };
+public class TextureManager {
+	public static final String[] SUPPORTED_IMAGE_EXTENSIONS = { "png", "jpg" };
+	public static final ResourcePath TEXTURE_PATH = Props.getPathOrDefault(
+		"rlhd.texture-path",
+		() -> path(TextureManager.class, "textures")
+	);
 	private static final float HALF_PI = (float) (Math.PI / 2);
-	private static final ResourcePath TEXTURE_PATH = Props.getPathOrDefault("rlhd.texture-path",
-		() -> path(TextureManager.class,"textures"));
 
 	@Inject
 	private HdPlugin plugin;
@@ -77,7 +78,6 @@ public class TextureManager
 	private IntBuffer pixelBuffer;
 	private BufferedImage scaledImage;
 	private BufferedImage vanillaImage;
-
 	public void startUp()
 	{
 		TEXTURE_PATH.watch(path -> {
@@ -169,7 +169,6 @@ public class TextureManager
 		double save = textureProvider.getBrightness();
 		textureProvider.setBrightness(1.0d);
 
-		int[] vanillaPixels = new int[128 * 128];
 		pixelBuffer = BufferUtils.createIntBuffer(textureSize * textureSize);
 		scaledImage = new BufferedImage(textureSize, textureSize, BufferedImage.TYPE_INT_ARGB);
 		vanillaImage = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
@@ -195,45 +194,20 @@ public class TextureManager
 			}
 
 			Material material = Material.getTexture(i);
-			if (material.parent != null)
-			{
+			if (material.parent != null) {
 				// Point this material to pre-existing texture from parent material
 				materialOrdinalToTextureIndex[material.ordinal()] = materialOrdinalToTextureIndex[material.parent.ordinal()];
 				continue;
 			}
 
-			String textureName = material == Material.NONE ? String.valueOf(i) : material.name().toLowerCase();
-
-			BufferedImage image = loadTextureImage(textureName);
-			if (image == null)
-			{
-				// Load vanilla texture
-				int[] pixels = textureProvider.load(i);
-				if (pixels == null)
-				{
-					log.warn("No vanilla pixels for texture index {}", i);
-					unusedIndices.addLast(i);
-					continue;
-				}
-				if (pixels.length != 128 * 128)
-				{
-					log.warn("Unknown dimensions for vanilla texture at index {} ({} pixels)", i, pixels.length);
-					unusedIndices.addLast(i);
-					continue;
-				}
-
-				for (int j = 0; j < pixels.length; j++) {
-					int p = pixels[j];
-					vanillaPixels[j] = p == 0 ? 0 : 0xFF << 24 | p & 0xFFFFFF;
-				}
-
-				vanillaImage.setRGB(0, 0, 128, 128, vanillaPixels, 0, 128);
-				image = vanillaImage;
+			BufferedImage image = loadTexture(material, i, textureProvider);
+			if (image == null) {
+				unusedIndices.addLast(i);
+				continue;
 			}
 
 			uploadTexture(i, image);
-			if (material != Material.NONE)
-			{
+			if (material != Material.NONE) {
 				materialOrdinalToTextureIndex[material.ordinal()] = i;
 			}
 
@@ -281,7 +255,7 @@ public class TextureManager
 			}
 
 			String textureName = material.name().toLowerCase();
-			BufferedImage image = loadTextureImage(textureName);
+			BufferedImage image = loadTextureFromFile(textureName);
 			if (image == null) {
 				if (material.vanillaTextureIndex == -1)
 					System.err.println("No texture found for material: " + material);
@@ -317,10 +291,40 @@ public class TextureManager
 		plugin.updateWaterTypeUniformBuffer();
 	}
 
-	private BufferedImage loadTextureImage(String textureName)
-	{
-		for (String ext : SUPPORTED_IMAGE_EXTENSIONS)
-		{
+	public BufferedImage loadTexture(Material material, int vanillaTextureIndex, TextureProvider vanillaTextureProvider) {
+		vanillaImage = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
+
+		String textureName = material == Material.NONE ? String.valueOf(vanillaTextureIndex) : material.name().toLowerCase();
+		BufferedImage image = loadTextureFromFile(textureName);
+		if (image != null)
+			return image;
+
+		if (vanillaTextureIndex < 0)
+			return null;
+
+		// Load vanilla texture
+		int[] pixels = vanillaTextureProvider.load(vanillaTextureIndex);
+		if (pixels == null) {
+			log.warn("No vanilla pixels for texture index {}", vanillaTextureIndex);
+			return null;
+		}
+		if (pixels.length != 128 * 128) {
+			log.warn("Unknown dimensions for vanilla texture at index {} ({} pixels)", vanillaTextureIndex, pixels.length);
+			return null;
+		}
+
+		int[] vanillaPixels = new int[128 * 128];
+		for (int j = 0; j < pixels.length; j++) {
+			int p = pixels[j];
+			vanillaPixels[j] = p == 0 ? 0 : 0xFF << 24 | p & 0xFFFFFF;
+		}
+
+		vanillaImage.setRGB(0, 0, 128, 128, vanillaPixels, 0, 128);
+		return vanillaImage;
+	}
+
+	public BufferedImage loadTextureFromFile(String textureName) {
+		for (String ext : SUPPORTED_IMAGE_EXTENSIONS) {
 			ResourcePath path = TEXTURE_PATH.resolve(textureName + "." + ext);
 			try {
 				return path.loadImage();
@@ -332,12 +336,14 @@ public class TextureManager
 		return null;
 	}
 
-	private void uploadTexture(int index, BufferedImage image)
-	{
+	public boolean isVanillaTexture(BufferedImage image) {
+		return image == vanillaImage;
+	}
+
+	private int[] getPixelData(BufferedImage image) {
 		// TODO: scale and transform on the GPU for better performance
 		AffineTransform t = new AffineTransform();
-		if (image != vanillaImage)
-		{
+		if (!isVanillaTexture(image)) {
 			// Flip non-vanilla textures horizontally to match vanilla UV orientation
 			t.translate(textureSize, 0);
 			t.scale(-1, 1);
@@ -346,27 +352,28 @@ public class TextureManager
 		AffineTransformOp scaleOp = new AffineTransformOp(t, AffineTransformOp.TYPE_BICUBIC);
 		scaleOp.filter(image, scaledImage);
 
-		int[] pixels = ((DataBufferInt) scaledImage.getRaster().getDataBuffer()).getData();
-		pixelBuffer.put(pixels).flip();
+		return ((DataBufferInt) scaledImage.getRaster().getDataBuffer()).getData();
+	}
+
+	private void uploadTexture(int index, BufferedImage image) {
+		pixelBuffer.put(getPixelData(image)).flip();
 
 		// Go from TYPE_4BYTE_ABGR in the BufferedImage to RGBA
 		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, index, textureSize, textureSize, 1,
-			GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, pixelBuffer);
+			GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, pixelBuffer
+		);
 	}
 
-	private void setAnisotropicFilteringLevel()
-	{
+	private void setAnisotropicFilteringLevel() {
 		int level = config.anisotropicFilteringLevel();
 		//level = 0 means no mipmaps and no anisotropic filtering
-		if (level == 0)
-		{
+		if (level == 0) {
 			glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		}
 		//level = 1 means with mipmaps but without anisotropic filtering GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT defaults to 1.0 which is off
 		//level > 1 enables anisotropic filtering. It's up to the vendor what the values mean
 		//Even if anisotropic filtering isn't supported, mipmaps will be enabled with any level >= 1
-		else
-		{
+		else {
 			// Trilinear filtering is used for HD textures as linear filtering produces noisy textures
 			// that are very noticeable on terrain
 			glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);

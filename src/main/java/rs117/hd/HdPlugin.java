@@ -1965,8 +1965,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 
 			// Draw with buffers bound to scene VAO
-			glBindVertexArray(vaoSceneHandle);
-
 			glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
 
 			glDisable(GL_BLEND);
