@@ -665,7 +665,7 @@ public class ModelPusher {
 		sceneContext.modelFaceVertices[11] = packedAlphaPriority | color3;
 	}
 
-	private static int interpolateHSL(int hsl, byte hue2, byte sat2, byte lum2, byte lerp) {
+	public static int interpolateHSL(int hsl, byte hue2, byte sat2, byte lum2, byte lerp) {
 		int hue = hsl >> 10 & 63;
 		int sat = hsl >> 7 & 7;
 		int lum = hsl & 127;
