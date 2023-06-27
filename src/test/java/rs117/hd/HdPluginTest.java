@@ -6,8 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 import net.runelite.client.RuneLiteProperties;
 import net.runelite.client.externalplugins.ExternalPluginManager;
-import net.runelite.client.plugins.PluginManager;
 import rs117.hd.model.ModelExporter;
+import rs117.hd.utils.DeveloperTools;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 
@@ -20,17 +20,9 @@ public class HdPluginTest {
 		Props.DEVELOPMENT = true;
 		ResourcePath.RESOURCE_PATH = path("src/main/resources");
 		useLatestPluginHub();
+		DeveloperTools.addTool(ModelExporter.class);
 		ExternalPluginManager.loadBuiltin(HdPlugin.class);
 		RuneLite.main(args);
-		RuneLite.getInjector()
-			.getInstance(PluginManager.class)
-			.getPlugins()
-			.stream()
-			.filter(p -> p instanceof HdPlugin)
-			.findFirst()
-			.ifPresent(p -> p
-				.getInjector()
-				.getInstance(ModelExporter.class));
 	}
 
 	private static void useLatestPluginHub() {

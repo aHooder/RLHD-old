@@ -27,11 +27,13 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
 import net.runelite.api.events.*;
 import net.runelite.api.model.*;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
@@ -83,7 +85,7 @@ import static rs117.hd.model.ModelPusher.interpolateHSL;
 import static rs117.hd.utils.ResourcePath.path;
 
 @Slf4j
-public class ModelExporter extends Overlay implements MouseListener, MouseWheelListener, KeyListener {
+public class ModelExporter extends Overlay implements MouseListener, MouseWheelListener, KeyListener, AutoCloseable {
 	private static final Color OUTLINE_COLOR = new Color(0xFFFF00FF, true);
 	private static final int OUTLINE_WIDTH = 4;
 	private static final int OUTLINE_FEATHER = 4;
@@ -94,21 +96,45 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 	private Client client;
 
 	@Inject
+	private ClientThread clientThread;
+
+	@Inject
+	private EventBus eventBus;
+
+	@Inject
+	private KeyManager keyManager;
+
+	@Inject
+	private MouseManager mouseManager;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
 	private ChatMessageManager chatMessageManager;
 
 	@Inject
 	private ModelOutlineRenderer modelOutlineRenderer;
 
 	@Inject
-	private ModelPusher modelPusher;
+	private TextureManager textureManager;
 
 	@Inject
-	private TextureManager textureManager;
+	private ModelPusher modelPusher;
 
 	private int clientTickCount;
 	private int selectedIndex;
 	private Object selectedObject;
 	private final HashSet<Object> hoverSet = new HashSet<>();
+
+	static {
+		try (var stack = MemoryStack.stackPush()) {
+			aiEnableVerboseLogging(true);
+			var logStream = AILogStream.malloc(stack);
+			aiGetPredefinedLogStream(aiDefaultLogStream_STDERR, (ByteBuffer) null, logStream);
+			aiAttachLogStream(logStream);
+		}
+	}
 
 	@Inject
 	public ModelExporter(
@@ -122,17 +148,19 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		setPriority(OverlayPriority.HIGH);
 
 		eventBus.register(this);
-		overlayManager.add(this);
 		mouseManager.registerMouseListener(this);
 		mouseManager.registerMouseWheelListener(this);
 		keyManager.registerKeyListener(this);
+		SwingUtilities.invokeLater(() -> overlayManager.add(this));
+	}
 
-		try (var stack = MemoryStack.stackPush()) {
-			aiEnableVerboseLogging(true);
-			var logStream = AILogStream.malloc(stack);
-			aiGetPredefinedLogStream(aiDefaultLogStream_STDERR, (ByteBuffer) null, logStream);
-			aiAttachLogStream(logStream);
-		}
+	@Override
+	public void close() {
+		eventBus.unregister(this);
+		overlayManager.remove(this);
+		mouseManager.unregisterMouseListener(this);
+		mouseManager.unregisterMouseWheelListener(this);
+		keyManager.unregisterKeyListener(this);
 	}
 
 	private void exportModel(String type, String name, Object object) {
@@ -785,7 +813,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 			.setOption("Export " + type)
 			.setTarget("<col=00ffff>" + name + "</col>")
 			.setIdentifier(MenuAction.RUNELITE_HIGH_PRIORITY.getId())
-			.onClick(e -> exportModel(finalType, finalName, renderable));
+			.onClick(e -> clientThread.invoke(() -> exportModel(finalType, finalName, renderable)));
 	}
 
 	@Subscribe
