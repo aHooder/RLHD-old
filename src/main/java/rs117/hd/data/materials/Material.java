@@ -555,7 +555,7 @@ public enum Material {
 		private Material displacementMap = NONE;
 		private Material roughnessMap = NONE;
 		private Material ambientOcclusionMap = NONE;
-		private Material flowMap = LAVA_FLOW_MAP;
+		private Material flowMap = LAVA_FLOW_MAP; // Why is this always set?
 		private int vanillaTextureIndex = -1;
 		private boolean overrideBaseColor = false;
 		private boolean unlit = false;

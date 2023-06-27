@@ -531,9 +531,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				modelBufferLarge = new GpuIntBuffer();
 
 				if (developerMode)
-				{
 					developerTools.activate();
-				}
 
 				lastFrameTime = System.currentTimeMillis();
 
@@ -603,10 +601,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			if (lwjglInitialized) {
 				textureManager.shutDown();
 
+				destroyVaos();
 				destroyBuffers();
 				destroyInterfaceTexture();
 				destroyPrograms();
-				destroyVaos();
 				destroyAAFbo();
 				destroyShadowMapFbo();
 
@@ -906,9 +904,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		// Create UI VAO
 		vaoUiHandle = glGenVertexArrays();
+		glBindVertexArray(vaoUiHandle);
 		// Create UI buffer
 		vboUiHandle = glGenBuffers();
-		glBindVertexArray(vaoUiHandle);
 
 		FloatBuffer vboUiData = BufferUtils.createFloatBuffer(5 * 4)
 			.put(new float[] {
@@ -929,6 +927,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// texture coord attribute
 		glVertexAttribPointer(1, 2, GL_FLOAT, false, 5 * Float.BYTES, 3 * Float.BYTES);
 		glEnableVertexAttribArray(1);
+
+		glBindVertexArray(0);
 	}
 
 	private void updateSceneVao(GLBuffer vertexBuffer, GLBuffer uvBuffer, GLBuffer normalBuffer) {
@@ -1730,6 +1730,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 			}
 
+			// Prepare to draw the scene from render buffers
 			glBindVertexArray(vaoSceneHandle);
 
 			float lightPitch = (float) Math.toRadians(environmentManager.currentLightPitch);
