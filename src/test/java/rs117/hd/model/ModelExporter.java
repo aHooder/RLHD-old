@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
@@ -63,6 +64,7 @@ import org.lwjgl.assimp.AIString;
 import org.lwjgl.assimp.AITexture;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.system.MemoryStack;
+import org.lwjgl.system.Pointer;
 import rs117.hd.data.materials.Material;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.TextureManager;
@@ -76,6 +78,7 @@ import static org.lwjgl.system.MemoryUtil.memAlloc;
 import static org.lwjgl.system.MemoryUtil.memAllocFloat;
 import static org.lwjgl.system.MemoryUtil.memAllocInt;
 import static org.lwjgl.system.MemoryUtil.memByteBuffer;
+import static org.lwjgl.system.MemoryUtil.memPutAddress;
 import static org.lwjgl.system.MemoryUtil.memSlice;
 import static org.lwjgl.system.MemoryUtil.memUTF8;
 import static org.lwjgl.system.MemoryUtil.nmemFree;
@@ -153,7 +156,25 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		keyManager.unregisterKeyListener(this);
 	}
 
-	private void exportModel(String objectType, String objectName, Object object) {
+	@AllArgsConstructor
+	private static class ModelInfo {
+		Object object;
+		Renderable renderable;
+		Model model;
+	}
+
+	@AllArgsConstructor
+	private static class MeshData {
+		AIMesh mesh;
+		AIFace.Buffer faces;
+	}
+
+	public void exportModel(Map.Entry<String, String> objectName, Object object) {
+		while (!textureManager.ensureTexturesLoaded()) ;
+		TextureProvider textureProvider = null;
+		while (textureProvider == null)
+			textureProvider = client.getTextureProvider();
+
 		long formatCount = aiGetExportFormatCount();
 		log.debug("Supported formats: {}", formatCount);
 		for (int i = 0; i < formatCount; i++) {
@@ -173,11 +194,11 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		}
 
 //		String formatId = "obj", extension = formatId;
-//		String formatId = "gltf2";
-//		String extension = "gltf";
-		String formatId = "glb2";
-		String extension = "glb";
-		var filename = (objectType + " " + objectName)
+//		String formatId = "collada", extension = "dae";
+//		String formatId = "fbx", extension = formatId;
+//		String formatId = "gltf2", extension = "gltf";
+		String formatId = "glb2", extension = "glb";
+		var filename = (objectName.getKey() + " " + objectName.getValue())
 			.replace(' ', '_')
 			.replaceAll("[^0-9a-zA-Z_ -]", "")
 			.toLowerCase();
@@ -188,13 +209,13 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 			exportPath = path("model-exports", filename + "_" + (collisionCounter++) + "." + extension);
 
 		long hash = getHash(object);
-		var models = resolveModels(object);
-		if (models.isEmpty()) {
+		var modelInfos = resolveModels(object);
+		if (modelInfos.isEmpty()) {
 			chatMessageManager.queue(QueuedMessage.builder()
 				.type(ChatMessageType.CONSOLE)
 				.runeLiteFormattedMessage(new ChatMessageBuilder()
-					.append(objectType.substring(0, 1).toUpperCase() + objectType.substring(1) + " ")
-					.append(Color.CYAN, objectName)
+					.append(objectName.getKey().substring(0, 1).toUpperCase() + objectName.getKey().substring(1) + " ")
+					.append(Color.CYAN, objectName.getValue())
 					.append(" has no model data.")
 					.build())
 				.build());
@@ -202,8 +223,9 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		}
 
 		var cleanup = new ArrayList<Long>();
+		var cleanupFaceBuffers = new ArrayList<AIFace.Buffer>();
 		try (var stack = MemoryStack.stackPush()) {
-			int totalFaceCount = models.stream().mapToInt(Mesh::getFaceCount).sum();
+			int totalFaceCount = modelInfos.stream().mapToInt(info -> info.model.getFaceCount()).sum();
 			int totalVertexCount = totalFaceCount * 3;
 
 			var vertices = memAllocFloat(totalVertexCount * 3);
@@ -219,6 +241,8 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 
 			var scene = AIScene.calloc(stack);
 			float scale = 1f / 128;
+			if (extension.equals("fbx"))
+				scale = 1; // this scaling parameter results in wildly different scaling with FBX for some reason
 			var transform = AIMatrix4x4.calloc(stack)
 				.a1(-scale).b2(-scale).c3(scale).d4(1);
 			var rootNode = AINode.calloc(stack)
@@ -232,29 +256,68 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 			// Dummy scene context for writing model data
 			var sceneContext = new SceneContext(client.getScene(), null);
 			boolean worldUvWarningSent = false;
-			for (Model model : models) {
+			for (ModelInfo modelInfo : modelInfos) {
+				var model = modelInfo.model;
 				int vertexOffset = sceneContext.getVertexOffset();
 				int uvOffset = sceneContext.getUvOffset();
-				modelPusher.pushModel(sceneContext, null, hash, model, null, 0, false);
+				int bakedOrientation = getBakedOrientation(modelInfo.object, modelInfo.renderable);
+				modelPusher.pushModel(sceneContext, null, hash, model, null, bakedOrientation, false);
 				int numVertices = sceneContext.modelPusherResults[0];
 				int numUvs = sceneContext.modelPusherResults[1];
 				int numFaces = numVertices / 3;
 
-				var modelMeshes = new HashMap<Material, AIMesh>();
-				var modelFaceBuffers = new HashMap<Material, AIFace.Buffer>();
+				assert numUvs == numVertices || numUvs == 0;
+
+				var meshDataMap = new HashMap<Material, MeshData>();
 				for (int face = 0; face < numFaces; face++) {
 					int faceVertexOffset = vertexOffset + face * 3;
 					int faceUvOffset = uvOffset + face * 3;
-					Material material = Material.NONE;
 
-					if (numUvs == 0) {
-						// Pad the UV buffer, since face indices are the same for vertex and UV data
-						uvs.put(ZEROS, 0, 9);
-					} else {
-						int materialData = (int) sceneContext.stagingBufferUvs.getBuffer().get(faceUvOffset * 4 + 3);
+					int materialData = 0;
+					Material material = Material.NONE;
+					if (numUvs > 0) {
+						materialData = (int) sceneContext.stagingBufferUvs.getBuffer().get(faceUvOffset * 4 + 3);
 						material = Material.values()[materialData >> 12 & MAX_MATERIAL_COUNT];
 						material = textureManager.getEffectiveMaterial(material);
+					}
 
+					var buffers = meshDataMap.get(material);
+					if (buffers == null) {
+						// Model#getHash() = ObjectDefinitionId << 10 | 7-bit model type << 3 | 1-bit mirroring? | 2-bit orientation
+						int objectCompositionId = (int) (model.getHash() >> 10); // could use this to grab another name maybe
+						var meshName = objectName.getValue() + "_" + material.name();
+
+						int materialIndex = materialList.indexOf(material);
+						if (materialIndex == -1) {
+							materialIndex = materialList.size();
+							materialList.add(material);
+						}
+
+						// All meshes share the same underlying buffers, with different indices
+						var mesh = AIMesh.calloc(stack)
+							.mPrimitiveTypes(aiPrimitiveType_TRIANGLE)
+							.mNumVertices(totalVertexCount)
+							.mVertices(AIVector3D.create(memAddress0(vertices), 0))
+							.mNormals(AIVector3D.create(memAddress0(normals), 0))
+							.mColors(stack.pointers(memAddress0(colors)))
+							.mMaterialIndex(materialIndex)
+							.mName(s -> s.data(stack.UTF8(meshName)))
+							.mNumUVComponents(stack.ints(2))
+							.mTextureCoords(stack.pointers(memAddress0(uvs)));
+
+						var faces = AIFace.malloc(numFaces);
+						cleanupFaceBuffers.add(faces);
+						buffers = new MeshData(mesh, faces);
+						meshDataMap.put(material, buffers);
+						meshList.add(mesh);
+					}
+
+					// Advance the face buffer and assign the memory address of the current offset into the index buffer
+					buffers.faces.get().mIndices(memSlice(indices, 0, 3));
+
+					if (numUvs == 0) {
+						uvs.put(ZEROS, 0, 9);
+					} else {
 						boolean vanillaUvs = (materialData >> 1 & 1) == 1;
 						boolean worldUvs = (materialData >> 2 & 1) == 1;
 						if (worldUvs) {
@@ -298,47 +361,10 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 						}
 					}
 
-					var faces = modelFaceBuffers.get(material);
-					if (faces == null) {
-						faces = AIFace.malloc(numFaces);
-						cleanup.add(faces.address());
-
-						// Model#getHash() = ObjectDefinitionId << 10 | 7-bit model type << 3 | 1-bit mirroring? | 2-bit orientation
-						int objectCompositionId = (int) (model.getHash() >> 10); // could use this to grab another name maybe
-						var meshName = objectName + "_" + material.name();
-
-						int materialIndex = materialList.indexOf(material);
-						if (materialIndex == -1) {
-							materialIndex = materialList.size();
-							materialList.add(material);
-						}
-
-						// All meshes share the same underlying buffers, with different indices
-						var mesh = AIMesh.calloc(stack)
-							.mPrimitiveTypes(aiPrimitiveType_TRIANGLE)
-							.mVertices(AIVector3D.create(memAddress0(vertices), totalVertexCount))
-							.mNumVertices(numVertices)
-							.mNormals(AIVector3D.create(memAddress0(normals), totalVertexCount))
-							.mColors(stack.pointers(memAddress0(colors)))
-							.mMaterialIndex(materialIndex)
-							.mName(s -> s.data(stack.UTF8(meshName)));
-						if (numUvs > 0) {
-							mesh.mNumUVComponents(stack.ints(2))
-								.mTextureCoords(stack.pointers(memAddress0(uvs)));
-						}
-
-						meshList.add(mesh);
-						modelMeshes.put(material, mesh);
-						modelFaceBuffers.put(material, faces);
-					}
-
-					// Advance the face buffer and assign the memory address of the current offset into the index buffer
-					faces.get().mIndices(memSlice(indices, 0, 3));
-
 					for (int i = 0; i < 3; i++) {
-						int vertex = faceVertexOffset + i;
-						indices.put(vertex);
+						indices.put(indices.position());
 
+						int vertex = faceVertexOffset + i;
 						int packedColor = sceneContext.stagingBufferVertices.getBuffer().get(vertex * 4 + 3);
 						float alpha = 1 - (packedColor >>> 24 & 0xFF) / (float) 0xFF;
 						colors
@@ -353,12 +379,8 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				}
 
 				// Since we don't know the number of faces per mesh in advance, assign them after
-				for (var entry : modelMeshes.entrySet()) {
-					var mesh = entry.getValue();
-					var material = entry.getKey();
-					var faces = modelFaceBuffers.get(material).flip();
-					mesh.mFaces(faces);
-				}
+				for (var meshData : meshDataMap.values())
+					meshData.mesh.mFaces(meshData.faces.flip());
 			}
 
 			var meshPointers = stack.mallocPointer(meshList.size());
@@ -377,9 +399,10 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 //			client.loadModelData(id)
 
 			var materialPointers = stack.callocPointer(materialList.size());
-			var textureIndices = new HashMap<Material, Integer>();
+			var expandedMaterials = new ArrayList<Material>();
 			for (var material : materialList) {
 				var aiMaterial = AIMaterial.calloc(stack);
+				materialPointers.put(aiMaterial);
 
 				Material[] materialTextures = {
 					material.parent != null ? material.parent : material,
@@ -391,52 +414,56 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				};
 
 				// Writing properties is unfortunately quite cumbersome
-				var materialProperties = stack.mallocPointer(materialTextures.length * 2 + 1);
-//				aiMaterial.mNumAllocated(materialPointers.capacity()); // seems not important
+				var materialPropertyPointers = new ArrayList<Long>();
 
 				AIString propertyKey;
 				ByteBuffer propertyBuffer;
 				propertyKey = AIString.malloc(stack).data(stack.UTF8(AI_MATKEY_NAME));
 				var materialName = AIString.malloc(stack).data(stack.UTF8(material.name()));
-				propertyBuffer = stack.malloc(AIMaterialProperty.SIZEOF)
+				propertyBuffer = stack.malloc(AIMaterialProperty.ALIGNOF, AIMaterialProperty.SIZEOF)
 					// property name aiString
 					.put(memByteBuffer(propertyKey))
 					// texture type
+					.position(AIMaterialProperty.MSEMANTIC)
 					.putInt(aiTextureType_NONE)
 					// texture index
 					.putInt(0) // always zero for non-texture properties
-					// data size
-					.putInt(materialName.sizeof())
+					// data size (based on https://github.com/assimp/assimp/blob/42386b829ca44f8ca1929f437cae21729d8469d0/code/Material/MaterialSystem.cpp#L528)
+					.putInt(materialName.length() + 1 + 4) // num chars + null terminator + integer
 					// data type
 					.putInt(aiPTI_String)
 					// pointer to the data
 					.position(AIMaterialProperty.MDATA) // alignment is important
 					.put(memByteBuffer(stack.pointers(materialName)));
-				materialProperties.put(memAddress0(propertyBuffer));
+				materialPropertyPointers.add(memAddress0(propertyBuffer));
 
 				propertyKey = AIString.malloc(stack).data(stack.UTF8(AI_MATKEY_GLTF_ALPHAMODE));
 				var alphaMode = AIString.malloc(stack).data(stack.UTF8("MASK"));
-				propertyBuffer = stack.malloc(AIMaterialProperty.SIZEOF)
+				propertyBuffer = stack.malloc(AIMaterialProperty.ALIGNOF, AIMaterialProperty.SIZEOF)
 					// property name aiString
 					.put(memByteBuffer(propertyKey))
 					// texture type
+					.position(AIMaterialProperty.MSEMANTIC)
 					.putInt(aiTextureType_NONE)
 					// texture index
 					.putInt(0) // always zero for non-texture properties
 					// data size
-					.putInt(alphaMode.sizeof())
+					.putInt(alphaMode.length() + 1 + 4)
 					// data type
 					.putInt(aiPTI_String)
 					// pointer to the data
 					.position(AIMaterialProperty.MDATA) // alignment is important
 					.put(memByteBuffer(stack.pointers(alphaMode)));
-				materialProperties.put(memAddress0(propertyBuffer));
+				materialPropertyPointers.add(memAddress0(propertyBuffer));
 
 				for (var texture : materialTextures) {
-					if (texture == null || texture == Material.NONE)
+					if (texture == null || texture == Material.NONE || expandedMaterials.contains(texture))
 						continue;
 
-					int type = aiTextureType_BASE_COLOR;
+					int index = expandedMaterials.size();
+					expandedMaterials.add(texture);
+
+					int type = aiTextureType_DIFFUSE; // FBX doesn't like aiTextureType_BASE_COLOR;
 					if (texture == material.normalMap) {
 						type = aiTextureType_NORMALS;
 					} else if (texture == material.displacementMap) {
@@ -449,47 +476,49 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 						type = aiTextureType_UNKNOWN;
 					}
 
-					int index = textureIndices.computeIfAbsent(texture, k -> textureIndices.size());
-
 					propertyKey = AIString.malloc(stack).data(stack.UTF8(_AI_MATKEY_TEXTURE_BASE));
 					var materialTextureUri = AIString.malloc(stack).data(stack.UTF8("*" + index)); // reference embedded texture by index
-					propertyBuffer = stack.malloc(AIMaterialProperty.SIZEOF)
+					propertyBuffer = stack.malloc(AIMaterialProperty.ALIGNOF, AIMaterialProperty.SIZEOF)
 						.put(memByteBuffer(propertyKey))
+						.position(AIMaterialProperty.MSEMANTIC)
 						.putInt(type)
 						.putInt(0) // index of the same texture type in the same material
-						.putInt(materialTextureUri.sizeof())
+						.putInt(materialTextureUri.length() + 1 + 4)
 						.putInt(aiPTI_String)
 						.position(AIMaterialProperty.MDATA) // alignment is important
 						.put(memByteBuffer(stack.pointers(materialTextureUri)));
-					materialProperties.put(memAddress0(propertyBuffer));
+					materialPropertyPointers.add(memAddress0(propertyBuffer));
 
-					// I think this causes crashing with multiple textures, and it doesn't seem necessary
+					// I think this is optional when only one UV map is used
 //					propertyKey = AIString.malloc(stack).data(stack.UTF8(_AI_MATKEY_UVWSRC_BASE));
 //					var materialUvMap = stack.ints(0); // UV map index
-//					propertyBuffer = stack.malloc(AIMaterialProperty.SIZEOF)
+//					propertyBuffer = stack.malloc(AIMaterialProperty.ALIGNOF, AIMaterialProperty.SIZEOF)
 //						.put(memByteBuffer(propertyKey))
+//						.position(AIMaterialProperty.MSEMANTIC)
 //						.putInt(type)
 //						.putInt(0) // index of the same texture type in the same material
 //						.putInt(Integer.BYTES)
 //						.putInt(aiPTI_Integer)
 //						.position(AIMaterialProperty.MDATA) // alignment is important
 //						.put(memByteBuffer(stack.pointers(materialUvMap)));
-//					materialProperties.put(memAddress0(propertyBuffer));
+//					materialPropertyPointers.add(memAddress0(propertyBuffer));
 				}
 
-				aiMaterial.mProperties(materialProperties.flip());
-				materialPointers.put(aiMaterial);
+				var mProperties = stack.mallocPointer(materialPropertyPointers.size());
+				for (long address : materialPropertyPointers)
+					mProperties.put(address);
+				aiMaterial
+					.mProperties(mProperties.flip())
+					.mNumAllocated(mProperties.limit()); // used internally by Assimp when copying scenes
 			}
 
-			var texturePointers = stack.callocPointer(textureIndices.size());
-			for (var entry : textureIndices.entrySet()) {
-				var material = entry.getKey();
-				var index = entry.getValue();
+			var texturePointers = stack.callocPointer(expandedMaterials.size());
+			for (Material material : expandedMaterials) {
 				String textureName = material.name().toLowerCase();
 				BufferedImage textureImage = textureManager.loadTexture(
 					material,
 					material.vanillaTextureIndex,
-					client.getTextureProvider()
+					textureProvider
 				);
 				if (textureImage == null) {
 					log.error("Failed to load texture for material: {}", material);
@@ -520,6 +549,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 					try (var stream = new ByteArrayOutputStream()) {
 						ImageIO.write(orientedImage, "png", stream);
 						byte[] encoded = stream.toByteArray();
+						assert encoded.length > 0;
 						textureEncoded = memAlloc(encoded.length)
 							.put(encoded)
 							.flip();
@@ -532,32 +562,38 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 					var aiTexture = stack.calloc(AITexture.ALIGNOF, AITexture.SIZEOF)
 						.putInt(textureEncoded.limit()) // texture width = data size if encoded image
 						.putInt(0) // texture height = zero if encoded image
+						.position(AITexture.ACHFORMATHINT)
 						.put(stack.ASCII("png"))
 						.position(AITexture.PCDATA)
 						.put(memByteBuffer(stack.pointers(memAddress0(textureEncoded))))
+						.position(AITexture.MFILENAME)
 						.put(memByteBuffer(AIString.malloc(stack).data(stack.UTF8(textureName + ".png"))))
 						.flip(); // skipping flip can easily result in an incorrect offset retrieved with memAddress
-					texturePointers.put(index, memAddress0(aiTexture));
+					texturePointers.put(memAddress0(aiTexture));
 				}
 			}
 
 			scene
 				.mMaterials(materialPointers.flip())
-				.mTextures(texturePointers);
+				.mTextures(texturePointers.flip());
 
 			aiEnableVerboseLogging(true);
 			var logStream = AILogStream.calloc(stack);
 			aiGetPredefinedLogStream(aiDefaultLogStream_STDERR, (ByteBuffer) null, logStream);
 			aiAttachLogStream(logStream);
 
+			// Extreme hack to make Assimp v5.2.5 skip the aiProcess_JoinIdenticalVertices step, even though it's forced for glTF2,
+			// by making it think that the step has already been completed:
+			// https://github.com/assimp/assimp/blob/9519a62dd20799c5493c638d1ef5a6f484e5faf1/code/Common/Exporter.cpp#L398-L400C27
+			// https://github.com/assimp/assimp/blob/9519a62dd20799c5493c638d1ef5a6f484e5faf1/code/Common/ScenePrivate.h#L57-L74
+			var scenePrivate = stack.calloc(Pointer.POINTER_SIZE + Integer.BYTES + Integer.BYTES)
+				.put(memByteBuffer(stack.pointers(0)))
+				.putInt(aiProcess_JoinIdenticalVertices);
+			memPutAddress(scene.address() + AIScene.MPRIVATE, memAddress0(scenePrivate));
+
 			int statusCode = aiExportScene(scene, formatId, exportPath.toPath().toString(),
 				aiProcess_EmbedTextures
 				| aiProcess_PreTransformVertices
-//				| aiProcess_DropNormals
-//				| aiProcess_GenNormals
-//				| aiProcess_GenSmoothNormals
-//				| aiProcess_FixInfacingNormals
-//				| aiProcess_FlipWindingOrder
 				| aiProcess_ValidateDataStructure
 				| aiProcess_FindInvalidData
 			);
@@ -569,8 +605,8 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
 					.runeLiteFormattedMessage(new ChatMessageBuilder()
-						.append("Error while exporting " + objectType + " model for ")
-						.append(Color.CYAN, objectName)
+						.append("Error while exporting " + objectName.getKey() + " model for ")
+						.append(Color.CYAN, objectName.getValue())
 						.append(Color.LIGHT_GRAY, " (status code " + statusCode + ")")
 						.build())
 					.build());
@@ -584,20 +620,13 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 					.build());
 			}
 		} finally {
-			HashSet<Long> alreadyFreed = new HashSet<>();
-			for (int i = 0; i < cleanup.size(); i++) {
-				long address = cleanup.get(i);
-				if (address == 0) {
-					log.warn("Cannot free null pointer at index " + i);
-				} else if (alreadyFreed.contains(address)) {
-					log.error("Pointer index " + i + " at address " + address + " has already been freed");
-				} else {
-					log.info("Freeing pointer index " + i + " with address " + address);
+			for (long address : cleanup)
+				if (address != 0)
 					nmemFree(address);
-					alreadyFreed.add(address);
-				}
-			}
 			cleanup.clear();
+			for (var buffer : cleanupFaceBuffers)
+				buffer.free();
+			cleanupFaceBuffers.clear();
 		}
 	}
 
@@ -636,7 +665,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		for (int face = 0; face < triangleCount; ++face) {
 			faces.get(face).mIndices(memSlice(indices, 0, 3));
 			for (int i = 0; i < 3; i++)
-				indices.put(face * 3 + i);
+				indices.put(indices.position());
 
 			int color1 = color1s[face];
 			int color2 = color2s[face];
@@ -829,50 +858,12 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		if (client.isMenuOpen() || selectedObject == null)
 			return;
 
-		var renderable = selectedObject;
-		String type = "model";
-		String name = "Unknown";
-		if (renderable instanceof TileObject) {
-			var object = (TileObject) renderable;
-			var def = client.getObjectDefinition(object.getId());
-			type = "tile object";
-			name = "ID " + def.getId();
-			if (!def.getName().equals("null")) {
-				name = def.getName() + " (" + name + ")";
-			} else if (def.getImpostorIds() != null) {
-				def = def.getImpostor();
-				if (def != null && !def.getName().equals("null"))
-					name = def.getName() + " (" + name + ")";
-			}
-		} else if (renderable instanceof NPC) {
-			var npc = (NPC) renderable;
-			var def = client.getNpcDefinition(npc.getId());
-			type = "NPC";
-			name = "ID " + def.getId();
-			if (!def.getName().equals("null"))
-				name = def.getName() + " (" + name + ")";
-		} else if (renderable instanceof Player) {
-			var player = (Player) renderable;
-			type = "player";
-			if (player.getName() != null)
-				name = player.getName();
-		} else if (renderable instanceof GraphicsObject) {
-			var object = (GraphicsObject) renderable;
-			type = "graphic";
-			name = "ID " + object.getId();
-		} else if (renderable instanceof Projectile) {
-			var projectile = (Projectile) renderable;
-			type = "projectile";
-			name = "ID " + projectile.getId();
-		}
-
-		String finalType = type;
-		String finalName = name;
+		var name = getTypeAndName(selectedObject);
 		client.createMenuEntry(client.getMenuEntries().length)
-			.setOption("Export " + type)
-			.setTarget("<col=00ffff>" + name + "</col>")
+			.setOption("Export " + name.getKey())
+			.setTarget("<col=00ffff>" + name.getValue() + "</col>")
 			.setIdentifier(MenuAction.RUNELITE_HIGH_PRIORITY.getId())
-			.onClick(e -> clientThread.invoke(() -> exportModel(finalType, finalName, renderable)));
+			.onClick(e -> clientThread.invoke(() -> exportModel(name, selectedObject)));
 	}
 
 	@Subscribe
@@ -1086,32 +1077,69 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 	}
 
 	private long getHash(Object object) {
-		if (object instanceof Actor)
-			return ((Actor) object).getHash();
-		if (object instanceof GraphicsObject)
-			return ((GraphicsObject) object).getHash();
-		if (object instanceof Projectile)
-			return ((Projectile) object).getHash();
-		if (object instanceof GameObject)
-			return ((GameObject) object).getHash();
-		if (object instanceof WallObject)
-			return ((WallObject) object).getHash();
-		if (object instanceof DecorativeObject)
-			return ((DecorativeObject) object).getHash();
-		if (object instanceof GroundObject)
-			return ((GroundObject) object).getHash();
+		if (object instanceof Node)
+			return ((Node) object).getHash();
+		if (object instanceof TileObject)
+			return ((TileObject) object).getHash();
 		return 0;
 	}
 
-	private List<Renderable> resolveRenderables(Object object) {
-		if (object instanceof Actor)
-			return list(((Actor) object).getModel());
-		if (object instanceof GraphicsObject)
-			return list(((GraphicsObject) object).getModel());
-		if (object instanceof Projectile)
-			return list(((Projectile) object).getModel());
+	private int getBakedOrientation(Object object, Renderable renderable) {
 		if (object instanceof GameObject)
-			return list(((GameObject) object).getRenderable());
+			return HDUtils.getBakedOrientation(((GameObject) object).getConfig());
+		if (object instanceof WallObject) {
+			var wallObject = (WallObject) object;
+			return renderable == wallObject.getRenderable1() ?
+				HDUtils.convertWallObjectOrientation(wallObject.getOrientationA()) :
+				HDUtils.convertWallObjectOrientation(wallObject.getOrientationB());
+		}
+		if (object instanceof DecorativeObject)
+			return HDUtils.getBakedOrientation(((DecorativeObject) object).getConfig());
+		if (object instanceof GroundObject)
+			return HDUtils.getBakedOrientation(((GroundObject) object).getConfig());
+		return 0;
+	}
+
+	private Map.Entry<String, String> getTypeAndName(Object renderable) {
+		String type = "model";
+		String name = "Unknown";
+		if (renderable instanceof TileObject) {
+			var object = (TileObject) renderable;
+			var def = client.getObjectDefinition(object.getId());
+			type = "tile object";
+			name = "ID " + def.getId();
+			if (!def.getName().equals("null")) {
+				name = def.getName() + " (" + name + ")";
+			} else if (def.getImpostorIds() != null) {
+				def = def.getImpostor();
+				if (def != null && !def.getName().equals("null"))
+					name = def.getName() + " (" + name + ")";
+			}
+		} else if (renderable instanceof NPC) {
+			var npc = (NPC) renderable;
+			var def = client.getNpcDefinition(npc.getId());
+			type = "NPC";
+			name = "ID " + def.getId();
+			if (!def.getName().equals("null"))
+				name = def.getName() + " (" + name + ")";
+		} else if (renderable instanceof Player) {
+			var player = (Player) renderable;
+			type = "player";
+			if (player.getName() != null)
+				name = player.getName();
+		} else if (renderable instanceof GraphicsObject) {
+			var object = (GraphicsObject) renderable;
+			type = "graphic";
+			name = "ID " + object.getId();
+		} else if (renderable instanceof Projectile) {
+			var projectile = (Projectile) renderable;
+			type = "projectile";
+			name = "ID " + projectile.getId();
+		}
+		return Map.entry(type, name);
+	}
+
+	private List<Renderable> resolveRenderables(Object object) {
 		if (object instanceof WallObject) {
 			var wallObject = (WallObject) object;
 			return list(wallObject.getRenderable1(), wallObject.getRenderable2());
@@ -1122,13 +1150,18 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		}
 		if (object instanceof GroundObject)
 			return list(((GroundObject) object).getRenderable());
+		if (object instanceof GameObject)
+			return list(((GameObject) object).getRenderable());
+		if (object instanceof Renderable)
+			return list((Renderable) object);
 		return list();
 	}
 
-	private List<Model> resolveModels(Object object) {
+	private List<ModelInfo> resolveModels(Object object) {
 		return resolveRenderables(object).stream()
 			.filter(Objects::nonNull)
-			.map(r -> r instanceof Model ? (Model) r : r.getModel())
+			.map(r -> new ModelInfo(object, r, r instanceof Model ? (Model) r : r.getModel()))
+			.filter(i -> i.model != null && i.model.getFaceCount() > 0)
 			.collect(Collectors.toList());
 	}
 

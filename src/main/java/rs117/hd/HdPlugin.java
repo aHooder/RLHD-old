@@ -530,9 +530,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				modelBufferSmall = new GpuIntBuffer();
 				modelBufferLarge = new GpuIntBuffer();
 
-				if (developerMode)
-					developerTools.activate();
-
 				lastFrameTime = System.currentTimeMillis();
 
 				updateCachedConfigs();
@@ -559,12 +556,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				lightManager.startUp();
 				environmentManager.startUp();
 
-				eventBus.register(lightManager);
+				if (developerMode)
+					developerTools.activate();
 
 				running = true;
 
-				if (client.getGameState() == GameState.LOGGED_IN)
-				{
+				if (client.getGameState() == GameState.LOGGED_IN) {
 					uploadScene();
 				}
 
@@ -591,12 +588,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		clientThread.invoke(() ->
 		{
-			eventBus.unregister(lightManager);
-
 			client.setGpu(false);
 			client.setDrawCallbacks(null);
 			client.setUnlockedFps(false);
+
 			modelPusher.shutDown();
+			lightManager.shutDown();
 
 			if (lwjglInitialized) {
 				textureManager.shutDown();
@@ -1687,13 +1684,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glClearColor(0, 0, 0, 1f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		// Draw 3d scene
-		final TextureProvider textureProvider = client.getTextureProvider();
-		if (textureProvider != null && client.getGameState().getState() >= GameState.LOADING.getState())
-		{
-			// lazy init textures as they may not be loaded at plugin start.
-			textureManager.ensureTexturesLoaded(textureProvider);
-
+		// Draw 3d scene (lazy init textures as they may not be loaded at plugin start)
+		if (client.getGameState().getState() >= GameState.LOADING.getState() && textureManager.ensureTexturesLoaded()) {
 			final int viewportHeight = client.getViewportHeight();
 			final int viewportWidth = client.getViewportWidth();
 

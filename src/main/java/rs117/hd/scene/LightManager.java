@@ -42,6 +42,7 @@ import net.runelite.api.*;
 import net.runelite.api.coords.*;
 import net.runelite.api.events.*;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.plugins.entityhider.EntityHiderConfig;
@@ -63,13 +64,17 @@ import static rs117.hd.utils.ResourcePath.path;
 
 @Singleton
 @Slf4j
-public class LightManager
-{
-	private static final ResourcePath LIGHTS_PATH = Props.getPathOrDefault("rlhd.lights-path",
-		() -> path(LightManager.class,"lights.json"));
+public class LightManager {
+	private static final ResourcePath LIGHTS_PATH = Props.getPathOrDefault(
+		"rlhd.lights-path",
+		() -> path(LightManager.class, "lights.json")
+	);
 
 	@Inject
 	private Client client;
+
+	@Inject
+	private EventBus eventBus;
 
 	@Inject
 	private HdPlugin plugin;
@@ -95,7 +100,7 @@ public class LightManager
 	final ListMultimap<Integer, Light> GRAPHICS_OBJECT_LIGHTS = ArrayListMultimap.create();
 
 	long lastFrameTime = -1;
-	boolean configChanged = false;
+	boolean reloadLightsConfig = false;
 
 	private EntityHiderConfig entityHiderConfig;
 
@@ -138,32 +143,29 @@ public class LightManager
 			}
 
 			log.debug("Loaded {} lights", lights.length);
-			configChanged = true;
-		}
-		catch (Exception ex)
-		{
+			reloadLightsConfig = true;
+		} catch (Exception ex) {
 			log.error("Failed to parse light configuration", ex);
 		}
 	}
 
-	public void startUp()
-	{
+	public void startUp() {
 		entityHiderConfig = configManager.getConfig(EntityHiderConfig.class);
 		LIGHTS_PATH.watch(path -> loadConfig(plugin.getGson(), path));
+		eventBus.register(this);
 	}
 
-	public void update(SceneContext sceneContext)
-	{
+	public void shutDown() {
+		eventBus.unregister(this);
+	}
+
+	public void update(SceneContext sceneContext) {
 		assert client.isClientThread();
-
 		if (client.getGameState() != GameState.LOGGED_IN)
-		{
 			return;
-		}
 
-		if (configChanged)
-		{
-			configChanged = false;
+		if (reloadLightsConfig) {
+			reloadLightsConfig = false;
 			loadSceneLights(sceneContext);
 
 			// check the NPCs in the scene to make sure they have lights assigned, if applicable,

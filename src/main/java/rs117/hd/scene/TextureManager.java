@@ -67,6 +67,9 @@ public class TextureManager {
 	private HdPluginConfig config;
 
 	@Inject
+	private Client client;
+
+	@Inject
 	private ClientThread clientThread;
 
 	private int textureArray;
@@ -78,6 +81,7 @@ public class TextureManager {
 	private IntBuffer pixelBuffer;
 	private BufferedImage scaledImage;
 	private BufferedImage vanillaImage;
+
 	public void startUp()
 	{
 		TEXTURE_PATH.watch(path -> {
@@ -102,17 +106,13 @@ public class TextureManager {
 		return replacement == -1 ? material : Material.values()[replacement];
 	}
 
-	public void ensureTexturesLoaded(TextureProvider textureProvider)
-	{
+	public boolean ensureTexturesLoaded() {
 		if (textureArray != 0)
-		{
-			return;
-		}
+			return true;
 
+		var textureProvider = client.getTextureProvider();
 		if (!allTexturesLoaded(textureProvider))
-		{
-			return;
-		}
+			return false;
 
 		Texture[] textures = textureProvider.getTextures();
 
@@ -289,6 +289,8 @@ public class TextureManager {
 
 		plugin.updateMaterialUniformBuffer(textureAnimations);
 		plugin.updateWaterTypeUniformBuffer();
+
+		return true;
 	}
 
 	public BufferedImage loadTexture(Material material, int vanillaTextureIndex, TextureProvider vanillaTextureProvider) {
@@ -400,24 +402,20 @@ public class TextureManager {
 	/**
 	 * Check if all textures have been loaded and cached yet.
 	 */
-	private boolean allTexturesLoaded(TextureProvider textureProvider)
-	{
+	private boolean allTexturesLoaded(TextureProvider textureProvider) {
+		if (textureProvider == null)
+			return false;
+
 		Texture[] textures = textureProvider.getTextures();
 		if (textures == null || textures.length == 0)
-		{
 			return false;
-		}
 
-		for (int textureId = 0; textureId < textures.length; textureId++)
-		{
+		for (int textureId = 0; textureId < textures.length; textureId++) {
 			Texture texture = textures[textureId];
-			if (texture != null)
-			{
+			if (texture != null) {
 				int[] pixels = textureProvider.load(textureId);
 				if (pixels == null)
-				{
 					return false;
-				}
 			}
 		}
 
