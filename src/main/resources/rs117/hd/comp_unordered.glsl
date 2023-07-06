@@ -54,7 +54,11 @@ void main() {
     thisB = vb[offset + ssboOffset * 3 + 1];
     thisC = vb[offset + ssboOffset * 3 + 2];
 
-    uint myOffset = localId;
+    int myOffset = int(localId);
+
+    int maxVertexCount = min(min(vout.length(), uvout.length()), normalout.length());
+    outOffset = maxVertexCount - 1 - outOffset;
+    myOffset *= -1;
 
     // position vertices in scene and write to out buffer
     vout[outOffset + myOffset * 3]     = pos + thisA;

@@ -261,6 +261,10 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         thisrvB = hillskew_vertex(thisrvB, hillskew, pos.y, plane);
         thisrvC = hillskew_vertex(thisrvC, hillskew, pos.y, plane);
 
+        int maxVertexCount = min(min(vout.length(), uvout.length()), normalout.length());
+        outOffset = maxVertexCount - 1 - outOffset;
+        myOffset *= -1;
+
         // position vertices in scene and write to out buffer
         vout[outOffset + myOffset * 3]     = thisrvA;
         vout[outOffset + myOffset * 3 + 1] = thisrvB;

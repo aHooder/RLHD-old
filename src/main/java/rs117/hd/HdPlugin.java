@@ -267,7 +267,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private int vaoSceneHandle;
 	private int fboSceneHandle;
-	private int rboSceneHandle;
+	private int rboSceneColorHandle;
+	private int rboSceneDepthHandle;
 
 	private int shadowMapResolution;
 	private int fboShadowMap;
@@ -425,7 +426,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					return false;
 
 				renderBufferOffset = 0;
-				fboSceneHandle = rboSceneHandle = 0; // AA FBO
+				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				numPassthroughModels = 0;
 				numModelsToSort = null;
@@ -600,7 +601,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				destroyInterfaceTexture();
 				destroyPrograms();
 				destroyVaos();
-				destroyAAFbo();
+				destroySceneFbo();
 				destroyShadowMapFbo();
 				destroyTileHeightMap();
 				destroyModelSortingBins();
@@ -1139,17 +1140,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		updateBuffer(hUniformBufferWaterTypes, GL_UNIFORM_BUFFER, buffer, GL_STATIC_DRAW, CL_MEM_READ_ONLY);
 	}
 
-	private void initLightsUniformBuffer()
-	{
+	private void initLightsUniformBuffer() {
 		// Allowing a buffer size of zero causes Apple M1/M2 to revert to software rendering
 		uniformBufferLights = BufferUtils.createByteBuffer(Math.max(1, configMaxDynamicLights) * 8 * SCALAR_BYTES);
 		updateBuffer(hUniformBufferLights, GL_UNIFORM_BUFFER, uniformBufferLights, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 	}
 
-	private void initAAFbo(int width, int height, int aaSamples)
-	{
-		if (OSType.getOSType() != OSType.MacOS)
-		{
+	private void initSceneFbo(int width, int height, int aaSamples) {
+		if (OSType.getOSType() != OSType.MacOS) {
 			final GraphicsConfiguration graphicsConfiguration = clientUI.getGraphicsConfiguration();
 			final AffineTransform transform = graphicsConfiguration.getDefaultTransform();
 
@@ -1161,29 +1159,37 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		fboSceneHandle = glGenFramebuffers();
 		glBindFramebuffer(GL_FRAMEBUFFER, fboSceneHandle);
 
-		// Create color render buffer
-		rboSceneHandle = glGenRenderbuffers();
-		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneHandle);
+		// Create color renderbuffer
+		rboSceneColorHandle = glGenRenderbuffers();
+		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneColorHandle);
 		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_RGBA, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneHandle);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneColorHandle);
+
+		// Create depth renderbuffer
+		rboSceneDepthHandle = glGenRenderbuffers();
+		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneDepthHandle);
+		glRenderbufferStorageMultisample(GL_RENDERBUFFER, aaSamples, GL_DEPTH24_STENCIL8, width, height);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rboSceneDepthHandle);
 
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 
-	private void destroyAAFbo()
-	{
-		if (fboSceneHandle != 0)
-		{
+	private void destroySceneFbo() {
+		if (fboSceneHandle != 0) {
 			glDeleteFramebuffers(fboSceneHandle);
 			fboSceneHandle = 0;
 		}
 
-		if (rboSceneHandle != 0)
-		{
-			glDeleteRenderbuffers(rboSceneHandle);
-			rboSceneHandle = 0;
+		if (rboSceneColorHandle != 0) {
+			glDeleteRenderbuffers(rboSceneColorHandle);
+			rboSceneColorHandle = 0;
+		}
+
+		if (rboSceneDepthHandle != 0) {
+			glDeleteRenderbuffers(rboSceneDepthHandle);
+			rboSceneDepthHandle = 0;
 		}
 	}
 
@@ -1744,6 +1750,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (renderBufferOffset > 0)
 			hasLoggedIn = true;
 
+		int maxSize = (int) Math.min(
+			Math.min(
+				hRenderBufferVertices.size / (VERTEX_SIZE * 4),
+				hRenderBufferUvs.size / (UV_SIZE * 4)
+			),
+			hRenderBufferNormals.size / (NORMAL_SIZE * 4)
+		);
+		int vertexCount = renderBufferOffset;
+		int vertexOffset = maxSize - 1 - vertexCount;
+
 		// Draw 3d scene
 		final TextureProvider textureProvider = client.getTextureProvider();
 		if (
@@ -1838,7 +1854,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glEnable(GL_DEPTH_TEST);
 
 				// Draw with buffers bound to scene VAO
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+				glDrawArrays(GL_TRIANGLES, vertexOffset, vertexCount);
 
 				glDisable(GL_CULL_FACE);
 				glDisable(GL_DEPTH_TEST);
@@ -1876,7 +1892,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					lastStretchedCanvasHeight != stretchedCanvasHeight ||
 					lastAntiAliasingMode != antiAliasingMode
 				) {
-					destroyAAFbo();
+					destroySceneFbo();
 
 					// Bind default FBO to check whether anti-aliasing is forced
 					glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
@@ -1887,7 +1903,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 					log.debug("AA samples: {}, max samples: {}, forced samples: {}", samples, maxSamples, forcedAASamples);
 
-					initAAFbo(stretchedCanvasWidth, stretchedCanvasHeight, samples);
+					initSceneFbo(stretchedCanvasWidth, stretchedCanvasHeight, samples);
 
 					lastStretchedCanvasWidth = stretchedCanvasWidth;
 					lastStretchedCanvasHeight = stretchedCanvasHeight;
@@ -1896,7 +1912,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 			} else {
 				glDisable(GL_MULTISAMPLE);
-				destroyAAFbo();
+				destroySceneFbo();
 			}
 
 			lastAntiAliasingMode = antiAliasingMode;
@@ -1906,7 +1922,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// Clear scene
 			float[] fogColor = ColorUtils.linearToSrgb(environmentManager.currentFogColor);
 			glClearColor(fogColor[0], fogColor[1], fogColor[2], 1f);
-			glClear(GL_COLOR_BUFFER_BIT);
+			glClearDepthf(1);
+			glClearStencil(0);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 			frameTimer.end(Timer.CLEAR_SCENE);
 			frameTimer.begin(Timer.RENDER_SCENE);
@@ -2020,7 +2038,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// Draw with buffers bound to scene VAO
 			glBindVertexArray(vaoSceneHandle);
 
-			glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+			glEnable(GL_STENCIL_TEST);
+			glStencilMask(0xFF); // Mask to & with output. We're setting it to 0xFF just to ensure it's not removing any bits
+			glStencilFunc(GL_EQUAL, 0, 0xFF); // Only fragments with stencil value == 0 should pass
+			// If stencil test passes (regardless of depth test), increment counter, else keep current
+			// The idea is to increment it from 0 to 1 on the very first fragment, then never let another fragment through
+			glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+
+			// Draw with buffers bound to scene VAO
+			glDrawArrays(GL_TRIANGLES, vertexOffset, vertexCount);
+
+			glDisable(GL_STENCIL_TEST);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
