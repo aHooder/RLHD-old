@@ -28,10 +28,10 @@
 #include THREAD_COUNT
 #include FACES_PER_THREAD
 
-shared int totalNum[12]; // number of faces with a given priority
-shared int totalDistance[12]; // sum of distances to faces of a given priority
+shared int totalNum[13]; // number of faces with a given priority
+shared int totalDistance[13]; // sum of distances to faces of a given priority
 
-shared int totalMappedNum[18]; // number of faces with a given adjusted priority
+shared int totalMappedNum[19]; // number of faces with a given adjusted priority
 
 shared int min10; // minimum distance to a face of priority 10
 shared uint renderPris[THREAD_COUNT * FACES_PER_THREAD]; // packed distance and face id
@@ -52,11 +52,11 @@ void main() {
 
     if (localId == 0) {
         min10 = 6000;
-        for (int i = 0; i < 12; ++i) {
+        for (int i = 0; i < 13; ++i) {
             totalNum[i] = 0;
             totalDistance[i] = 0;
         }
-        for (int i = 0; i < 18; ++i) {
+        for (int i = 0; i < 19; ++i) {
             totalMappedNum[i] = 0;
         }
     }

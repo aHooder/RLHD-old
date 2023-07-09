@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -12,6 +13,7 @@ import net.runelite.api.*;
 import net.runelite.api.coords.*;
 import rs117.hd.data.environments.Environment;
 import rs117.hd.data.materials.Material;
+import rs117.hd.model.ModelOffsets;
 import rs117.hd.scene.lights.SceneLight;
 import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.buffer.GpuFloatBuffer;
@@ -67,7 +69,9 @@ public class SceneContext {
 	// model pusher arrays, to avoid simultaneous usage from different threads
 	public final int[] modelFaceVertices = new int[12];
 	public final float[] modelFaceNormals = new float[12];
-	public final int[] modelPusherResults = new int[2];
+	public final int[] modelPusherResults = new int[3]; // face count, textured face count, transparent face count
+
+	public IdentityHashMap<Model, ModelOffsets> staticModels = new IdentityHashMap<>();
 
 	public SceneContext(Scene scene, int expandedMapLoadingChunks, boolean reuseBuffers, @Nullable SceneContext previous) {
 		this.scene = scene;

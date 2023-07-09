@@ -35,9 +35,9 @@ void main() {
     ModelInfo minfo = ol[groupId];
 
     int offset = minfo.offset;
-    int size = minfo.size;
-    int outOffset = minfo.idx;
-    int uvOffset = minfo.uvOffset;
+    int size = minfo.faceCount;
+    int outOffset;
+    int offsetUv = minfo.offsetUv;
     int flags = minfo.flags;
 
     ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
@@ -57,7 +57,7 @@ void main() {
     int myOffset = int(localId);
 
     int maxVertexCount = min(min(vout.length(), uvout.length()), normalout.length());
-    outOffset = maxVertexCount - 1 - outOffset;
+    outOffset = maxVertexCount - 1 - minfo.renderOffsetOpaque;
     myOffset *= -1;
 
     // position vertices in scene and write to out buffer
@@ -65,14 +65,14 @@ void main() {
     vout[outOffset + myOffset * 3 + 1] = pos + thisB;
     vout[outOffset + myOffset * 3 + 2] = pos + thisC;
 
-    if (uvOffset < 0) {
+    if (offsetUv < 0) {
         uvout[outOffset + myOffset * 3]     = vec4(0, 0, 0, 0);
         uvout[outOffset + myOffset * 3 + 1] = vec4(0, 0, 0, 0);
         uvout[outOffset + myOffset * 3 + 2] = vec4(0, 0, 0, 0);
     } else {
-        uvout[outOffset + myOffset * 3]     = uv[uvOffset + localId * 3];
-        uvout[outOffset + myOffset * 3 + 1] = uv[uvOffset + localId * 3 + 1];
-        uvout[outOffset + myOffset * 3 + 2] = uv[uvOffset + localId * 3 + 2];
+        uvout[outOffset + myOffset * 3]     = uv[offsetUv + localId * 3];
+        uvout[outOffset + myOffset * 3 + 1] = uv[offsetUv + localId * 3 + 1];
+        uvout[outOffset + myOffset * 3 + 2] = uv[offsetUv + localId * 3 + 2];
     }
 
     vec4 normA, normB, normC;

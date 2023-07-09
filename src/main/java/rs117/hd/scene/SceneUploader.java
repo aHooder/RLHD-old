@@ -40,6 +40,7 @@ import rs117.hd.data.materials.Material;
 import rs117.hd.data.materials.Overlay;
 import rs117.hd.data.materials.Underlay;
 import rs117.hd.data.materials.UvType;
+import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.scene.model_overrides.ObjectType;
@@ -164,12 +165,13 @@ class SceneUploader {
 
 						if (vertexCount > 0) {
 							sceneContext.staticUnorderedModelBuffer
-								.ensureCapacity(8)
+								.ensureCapacity(9)
 								.getBuffer()
 								.put(vertexOffset)
 								.put(uvOffset)
 								.put(vertexCount / 3)
 								.put(sceneContext.staticVertexCount)
+								.put(0)
 								.put(0)
 								.put(tileX * LOCAL_TILE_SIZE)
 								.put(0)
@@ -192,12 +194,11 @@ class SceneUploader {
 
 		// pack a bit into bufferoffset that we can use later to hide
 		// some low-importance objects based on Level of Detail setting
-		model.setBufferOffset(sceneContext.getVertexOffset());
-		model.setUvBufferOffset(sceneContext.getUvOffset());
+		int vertexOffset = sceneContext.getVertexOffset();
+		int uvOffset = sceneContext.getUvOffset();
 		modelPusher.pushModel(sceneContext, tile, hash, model, objectType, orientation, false);
-		if (sceneContext.modelPusherResults[1] == 0)
-			model.setUvBufferOffset(-1);
 
+		sceneContext.staticModels.put(model, new ModelOffsets(vertexOffset, uvOffset, sceneContext.modelPusherResults));
 		model.setSceneId(sceneContext.id);
 		++sceneContext.uniqueModels;
 	}
@@ -235,12 +236,13 @@ class SceneUploader {
 				if (hasUnderwaterTerrain == 1 && tileHeights[renderLevel][tileExX][tileExY] >= -16) {
 					// Draw the underwater tile at the start of each frame
 					sceneContext.staticUnorderedModelBuffer
-						.ensureCapacity(8)
+						.ensureCapacity(9)
 						.getBuffer()
 						.put(vertexOffset)
 						.put(uvOffset)
 						.put(2) // 2 faces
 						.put(sceneContext.staticVertexCount)
+						.put(0)
 						.put(0)
 						.put(tileX * LOCAL_TILE_SIZE)
 						.put(0)

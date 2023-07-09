@@ -35,6 +35,7 @@
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
 
+uniform int renderPass;
 uniform mat4 lightProjectionMatrix;
 uniform float elapsedTime;
 uniform float colorBlindnessIntensity;
@@ -261,9 +262,9 @@ void main() {
 
 
         // get fragment colors by combining vertex colors and texture samples
-        vec4 texA = getMaterialShouldOverrideBaseColor(material1) ? texColor1 : vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a));
-        vec4 texB = getMaterialShouldOverrideBaseColor(material2) ? texColor2 : vec4(texColor2.rgb * baseColor2.rgb, min(texColor2.a, baseColor2.a));
-        vec4 texC = getMaterialShouldOverrideBaseColor(material3) ? texColor3 : vec4(texColor3.rgb * baseColor3.rgb, min(texColor3.a, baseColor3.a));
+        vec4 texA = mix(vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a)), texColor1, getMaterialShouldOverrideBaseColor(material1));
+        vec4 texB = mix(vec4(texColor2.rgb * baseColor2.rgb, min(texColor2.a, baseColor2.a)), texColor2, getMaterialShouldOverrideBaseColor(material2));
+        vec4 texC = mix(vec4(texColor3.rgb * baseColor3.rgb, min(texColor3.a, baseColor3.a)), texColor3, getMaterialShouldOverrideBaseColor(material3));
 
         // combine fragment colors based on each blend, creating
         // one color for each overlay/underlay 'layer'
@@ -493,7 +494,6 @@ void main() {
         }
     }
 
-
     outputColor.rgb = clamp(outputColor.rgb, 0, 1);
     vec3 hsv = srgbToHsv(outputColor.rgb);
 
@@ -527,6 +527,14 @@ void main() {
         }
 
         outputColor.rgb = mix(outputColor.rgb, fogColor, combinedFog);
+    }
+
+    if (renderPass == 0) {
+        // Write all zeroes for alpha, to allow for special alpha blending
+//        outputColor.a = 0;
+    } else if (renderPass == 1) {
+        // Premultiply alpha when drawing transparent faces
+//        outputColor.rgb *= outputColor.a;
     }
 
     FragColor = outputColor;

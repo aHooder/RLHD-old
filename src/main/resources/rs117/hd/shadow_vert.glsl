@@ -58,14 +58,14 @@ void main() {
     if (opacityThreshold == 0)
         opacityThreshold = SHADOW_DEFAULT_OPACITY_THRESHOLD;
 
-    bool isTransparent = opacity <= opacityThreshold;
+    bool isTranslucent = opacity <= opacityThreshold;
     bool isTile = (terrainData & 1) == 1;
     bool isWaterSurfaceOrUnderwaterTile = waterTypeIndex > 0;
 
     bool isShadowDisabled =
         isTile ||
         isWaterSurfaceOrUnderwaterTile ||
-        isTransparent;
+        isTranslucent;
 
     int shouldCastShadow = isShadowDisabled ? 0 : 1;
 

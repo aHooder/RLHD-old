@@ -180,13 +180,13 @@ public class ModelPusher {
 		int preOrientation,
 		boolean shouldCache
 	) {
-		if (modelCache == null) {
+		if (modelCache == null)
 			shouldCache = false;
-		}
 
-		final int faceCount = Math.min(model.getFaceCount(), MAX_FACE_COUNT);
-		final int bufferSize = faceCount * DATUM_PER_FACE;
+		final int totalFaceCount = Math.min(model.getFaceCount(), MAX_FACE_COUNT);
+		final int bufferSize = totalFaceCount * DATUM_PER_FACE;
 		int texturedFaceCount = 0;
+		int translucentFaceCount = 0;
 
 		ModelOverride modelOverride = modelOverrideManager.getOverride(hash);
 		boolean useMaterialOverrides = plugin.configModelTextures || modelOverride.forceOverride;
@@ -215,6 +215,7 @@ public class ModelPusher {
 		sceneContext.stagingBufferNormals.ensureCapacity(bufferSize);
 		if (!skipUVs) {
 			sceneContext.stagingBufferUvs.ensureCapacity(bufferSize);
+			texturedFaceCount = totalFaceCount;
 		}
 
 		boolean foundCachedVertexData = false;
@@ -229,8 +230,9 @@ public class ModelPusher {
 
 			vertexHash = modelHasher.calculateVertexCacheHash();
 			IntBuffer vertexData = this.modelCache.getIntBuffer(vertexHash);
-			foundCachedVertexData = vertexData != null && vertexData.remaining() == bufferSize;
+			foundCachedVertexData = vertexData != null && vertexData.remaining() == bufferSize + 1;
 			if (foundCachedVertexData) {
+				vertexData.position(1); // skip the translucent face count at index 0
 				sceneContext.stagingBufferVertices.put(vertexData);
 				vertexData.rewind();
 			}
@@ -248,15 +250,15 @@ public class ModelPusher {
 				FloatBuffer uvData = this.modelCache.getFloatBuffer(uvHash);
 				foundCachedUvData = uvData != null && uvData.remaining() == bufferSize;
 				if (foundCachedUvData) {
-					texturedFaceCount = faceCount;
 					sceneContext.stagingBufferUvs.put(uvData);
 					uvData.rewind();
 				}
 			}
 
 			if (foundCachedVertexData && foundCachedNormalData && foundCachedUvData) {
-				sceneContext.modelPusherResults[0] = faceCount;
+				sceneContext.modelPusherResults[0] = totalFaceCount;
 				sceneContext.modelPusherResults[1] = texturedFaceCount;
+				sceneContext.modelPusherResults[2] = vertexData.get(0);
 				return;
 			}
 		}
@@ -274,10 +276,12 @@ public class ModelPusher {
 			shouldCacheUvData = !foundCachedUvData;
 
 			if (shouldCacheVertexData) {
-				fullVertexData = this.modelCache.reserveIntBuffer(vertexHash, bufferSize);
+				fullVertexData = this.modelCache.reserveIntBuffer(vertexHash, bufferSize + 1);
 				if (fullVertexData == null) {
 					log.error("failed to reserve vertex buffer");
 					shouldCacheVertexData = false;
+				} else {
+					fullVertexData.put(0); // reserve first int for storing the translucent face count
 				}
 			}
 
@@ -298,24 +302,34 @@ public class ModelPusher {
 			}
 		}
 
-		if (plugin.enableDetailedTimers)
-			frameTimer.begin(Timer.MODEL_PUSHING_VERTEX);
-		for (int face = 0; face < faceCount; face++) {
+		for (int face = 0; face < totalFaceCount; face++) {
+			if (plugin.enableDetailedTimers)
+				frameTimer.begin(Timer.MODEL_PUSHING_VERTEX);
+			Material material = baseMaterial;
+			short textureId = isVanillaTextured ? faceTextures[face] : -1;
+			if (textureId != -1) {
+				material = textureMaterial;
+				if (material == Material.NONE)
+					material = Material.fromVanillaTexture(textureId);
+			}
+
+			boolean isTranslucent = material.hasTransparency;
+
 			if (!foundCachedVertexData) {
 				getFaceVertices(sceneContext, tile, hash, model, modelOverride, objectType, face);
 				sceneContext.stagingBufferVertices.put(sceneContext.modelFaceVertices);
+				if ((sceneContext.modelFaceVertices[3] >> 24 & 0xFF) > 0)
+					isTranslucent = true;
 
 				if (shouldCacheVertexData) {
 					fullVertexData.put(sceneContext.modelFaceVertices);
 				}
 			}
-		}
-		if (plugin.enableDetailedTimers)
-			frameTimer.end(Timer.MODEL_PUSHING_VERTEX);
+			if (plugin.enableDetailedTimers)
+				frameTimer.end(Timer.MODEL_PUSHING_VERTEX);
 
-		if (plugin.enableDetailedTimers)
-			frameTimer.begin(Timer.MODEL_PUSHING_NORMAL);
-		for (int face = 0; face < faceCount; face++) {
+			if (plugin.enableDetailedTimers)
+				frameTimer.begin(Timer.MODEL_PUSHING_NORMAL);
 			if (!foundCachedNormalData) {
 				getNormalDataForFace(sceneContext, model, modelOverride, face);
 				sceneContext.stagingBufferNormals.put(sceneContext.modelFaceNormals);
@@ -324,21 +338,12 @@ public class ModelPusher {
 					fullNormalData.put(sceneContext.modelFaceNormals);
 				}
 			}
-		}
-		if (plugin.enableDetailedTimers)
-			frameTimer.end(Timer.MODEL_PUSHING_NORMAL);
+			if (plugin.enableDetailedTimers)
+				frameTimer.end(Timer.MODEL_PUSHING_NORMAL);
 
-		if (plugin.enableDetailedTimers)
-			frameTimer.begin(Timer.MODEL_PUSHING_UV);
-		for (int face = 0; face < faceCount; face++) {
+			if (plugin.enableDetailedTimers)
+				frameTimer.begin(Timer.MODEL_PUSHING_UV);
 			if (!foundCachedUvData) {
-				Material material = baseMaterial;
-				short textureId = isVanillaTextured ? faceTextures[face] : -1;
-				if (textureId != -1) {
-					material = textureMaterial;
-					if (material == Material.NONE)
-						material = Material.fromVanillaTexture(textureId);
-				}
 				UvType uvType = modelOverride.uvType;
 				if (uvType == UvType.VANILLA || (textureId != -1 && modelOverride.retainVanillaUvs))
 					uvType = isVanillaUVMapped && textureFaces[face] != -1 ? UvType.VANILLA : UvType.GEOMETRY;
@@ -356,15 +361,17 @@ public class ModelPusher {
 				sceneContext.stagingBufferUvs.put(uvData);
 				if (shouldCacheUvData)
 					fullUvData.put(uvData);
-
-				++texturedFaceCount;
 			}
+
+			if (isTranslucent)
+				++translucentFaceCount;
+			if (plugin.enableDetailedTimers)
+				frameTimer.end(Timer.MODEL_PUSHING_UV);
 		}
-		if (plugin.enableDetailedTimers)
-			frameTimer.end(Timer.MODEL_PUSHING_UV);
 
 		if (shouldCacheVertexData) {
 			fullVertexData.flip();
+			fullVertexData.put(0, translucentFaceCount);
 		}
 
 		if (shouldCacheNormalData) {
@@ -375,8 +382,9 @@ public class ModelPusher {
 			fullUvData.flip();
 		}
 
-		sceneContext.modelPusherResults[0] = faceCount;
+		sceneContext.modelPusherResults[0] = totalFaceCount;
 		sceneContext.modelPusherResults[1] = texturedFaceCount;
+		sceneContext.modelPusherResults[2] = translucentFaceCount;
 	}
 
 	private void getNormalDataForFace(SceneContext sceneContext, Model model, @NonNull ModelOverride modelOverride, int face) {
@@ -425,7 +433,8 @@ public class ModelPusher {
 		assert materialIndex <= MAX_MATERIAL_COUNT;
 		int materialData =
 			(materialIndex & MAX_MATERIAL_COUNT) << 12
-			| ((int) (modelOverride.shadowOpacityThreshold * 0x3F) & 0x3F) << 5
+			| ((int) (modelOverride.shadowOpacityThreshold * 0x3F) & 0x3F) << 6
+			| (material.hasTransparency ? 1 : 0) << 5
 			| (!modelOverride.receiveShadows ? 1 : 0) << 4
 			| (modelOverride.flatNormals ? 1 : 0) << 3
 			| (uvType.worldUvs ? 1 : 0) << 2

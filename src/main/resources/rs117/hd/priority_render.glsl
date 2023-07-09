@@ -32,8 +32,8 @@ layout(binding = 3) uniform isampler3D tileHeightMap;
 // with priorities 10/11 into the correct 'slots' resulting in 18 possible
 // adjusted priorities
 int priority_map(int p, int distance, int _min10, int avg1, int avg2, int avg3) {
-    // (10, 11)  0  1  2  (10, 11)  3  4  (10, 11)  5  6  7  8  9  (10, 11)
-    //   0   1   2  3  4    5   6   7  8    9  10  11 12 13 14 15   16  17
+    // (10, 11)  0  1  2  (10, 11)  3  4  (10, 11)  5  6  7  8  9  (10, 11) 18 (translucent)
+    //   0   1   2  3  4    5   6   7  8    9  10  11 12 13 14 15   16  17  12
     switch (p) {
         case 0: return 2;
         case 1: return 3;
@@ -65,6 +65,7 @@ int priority_map(int p, int distance, int _min10, int avg1, int avg2, int avg3) 
         } else {
             return 17;
         }
+        case 12: return 18;
         default:
         // this can't happen unless an invalid priority is sent. just assume 0.
         return 0;
@@ -74,8 +75,8 @@ int priority_map(int p, int distance, int _min10, int avg1, int avg2, int avg3) 
 // calculate the number of faces with a lower adjusted priority than
 // the given adjusted priority
 int count_prio_offset(int priority) {
-    // this shouldn't ever be outside of (0, 17) because it is the return value from priority_map
-    priority = clamp(priority, 0, 17);
+    // this shouldn't ever be outside of (0, 18) because it is the return value from priority_map
+    priority = clamp(priority, 0, 18);
     int total = 0;
     for (int i = 0; i < priority; i++) {
         total += totalMappedNum[i];
@@ -87,12 +88,13 @@ void get_face(
     uint localId, ModelInfo minfo, int cameraYaw, int cameraPitch,
     out int prio, out int dis, out ivec4 o1, out ivec4 o2, out ivec4 o3
 ) {
-    int size = minfo.size;
+    int faceCount = minfo.faceCount;
     int offset = minfo.offset;
+    int offsetUv = minfo.offsetUv;
     int flags = minfo.flags;
     uint ssboOffset;
 
-    if (localId < size) {
+    if (localId < faceCount) {
         ssboOffset = localId;
     } else {
         ssboOffset = 0;
@@ -107,7 +109,7 @@ void get_face(
     thisB = vb[offset + ssboOffset * 3 + 1];
     thisC = vb[offset + ssboOffset * 3 + 2];
 
-    if (localId < size) {
+    if (localId < faceCount) {
         int radius = (flags >> 12) & 0xfff;
         int orientation = flags & 0x7ff;
 
@@ -128,10 +130,19 @@ void get_face(
             thisDistance = max(0, thisDistance);
         }
 
+        bool isTranslucent = (thisA.w >> 24 & 0xFF) > 0;
+        if (offsetUv >= 0) {
+            int materialData = int(uv[offsetUv + ssboOffset * 3].w);
+            if ((materialData >> MATERIAL_FLAG_HAS_TRANSPARENCY & 1) == 1)
+                isTranslucent = true;
+        }
+
+        if (isTranslucent)
+            thisPriority = 12;
+
         o1 = thisrvA;
         o2 = thisrvB;
         o3 = thisrvC;
-
         prio = thisPriority;
         dis = thisDistance;
     } else {
@@ -144,7 +155,8 @@ void get_face(
 }
 
 void add_face_prio_distance(uint localId, ModelInfo minfo, ivec4 thisrvA, ivec4 thisrvB, ivec4 thisrvC, int thisPriority, int thisDistance, ivec4 pos) {
-    if (localId < minfo.size) {
+    int faceCount = minfo.faceCount;
+    if (localId < faceCount) {
         // if the face is not culled, it is calculated into priority distance averages
         if (face_visible(thisrvA, thisrvB, thisrvC, pos)) {
             atomicAdd(totalNum[thisPriority], 1);
@@ -159,11 +171,11 @@ void add_face_prio_distance(uint localId, ModelInfo minfo, ivec4 thisrvA, ivec4 
 }
 
 int map_face_priority(uint localId, ModelInfo minfo, int thisPriority, int thisDistance, out int prio) {
-    int size = minfo.size;
+    int faceCount = minfo.faceCount;
 
     // Compute average distances for 0/2, 3/4, and 6/8
 
-    if (localId < size) {
+    if (localId < faceCount) {
         int avg1 = 0;
         int avg2 = 0;
         int avg3 = 0;
@@ -192,9 +204,9 @@ int map_face_priority(uint localId, ModelInfo minfo, int thisPriority, int thisD
 }
 
 void insert_face(uint localId, ModelInfo minfo, int adjPrio, int distance, int prioIdx) {
-    int size = minfo.size;
+    int faceCount = minfo.faceCount;
 
-    if (localId < size) {
+    if (localId < faceCount) {
         // calculate base offset into renderPris based on number of faces with a lower priority
         int baseOff = count_prio_offset(adjPrio);
         // the furthest faces draw first, and have the highest value
@@ -226,11 +238,10 @@ ivec4 hillskew_vertex(ivec4 v, int hillskew, int y, int plane) {
 void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDistance, ivec4 thisrvA, ivec4 thisrvB, ivec4 thisrvC) {
     /* compute face distance */
     int offset = minfo.offset;
-    int size = minfo.size;
+    int faceCount = minfo.faceCount;
 
-    if (localId < size) {
-        int outOffset = minfo.idx;
-        int uvOffset = minfo.uvOffset;
+    if (localId < faceCount) {
+        int offsetUv = minfo.offsetUv;
         int flags = minfo.flags;
         ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
         int orientation = flags & 0x7ff;
@@ -241,11 +252,9 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         const int start = priorityOffset; // index of first face with this priority
         const int end = priorityOffset + numOfPriority; // index of last face with this priority
         const uint renderPriority = uint(thisDistance << 16) | (~localId & 0xffffu);
-        int myOffset = priorityOffset;
-
-        uint ssboOffset = localId;
 
         // calculate position this face will be in
+        int myOffset = 0;
         for (int i = start; i < end; ++i)
             if (renderPriority < renderPris[i])
                 ++myOffset;
@@ -261,9 +270,16 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         thisrvB = hillskew_vertex(thisrvB, hillskew, pos.y, plane);
         thisrvC = hillskew_vertex(thisrvC, hillskew, pos.y, plane);
 
-        int maxVertexCount = min(min(vout.length(), uvout.length()), normalout.length());
-        outOffset = maxVertexCount - 1 - outOffset;
-        myOffset *= -1;
+        int outOffset;
+        if (thisPriority >= 18) {
+            // Translucent faces should be ordered back to front
+            outOffset = minfo.renderOffsetTranslucent;
+        } else {
+            // Flip the order of opaque faces to reduce over-draw
+            int maxVertexCount = min(min(vout.length(), uvout.length()), normalout.length());
+            outOffset = maxVertexCount - minfo.renderOffsetOpaque - 1;
+            myOffset = -(priorityOffset + myOffset);
+        }
 
         // position vertices in scene and write to out buffer
         vout[outOffset + myOffset * 3]     = thisrvA;
@@ -273,13 +289,13 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         vec4 uvA = vec4(0);
         vec4 uvB = vec4(0);
         vec4 uvC = vec4(0);
+        if (offsetUv >= 0) {
+            uvA = uv[offsetUv + localId * 3];
+            uvB = uv[offsetUv + localId * 3 + 1];
+            uvC = uv[offsetUv + localId * 3 + 2];
 
-        if (uvOffset >= 0) {
-            uvA = uv[uvOffset + localId * 3];
-            uvB = uv[uvOffset + localId * 3 + 1];
-            uvC = uv[uvOffset + localId * 3 + 2];
-
-            if ((int(uvA.w) >> MATERIAL_FLAG_IS_VANILLA_TEXTURED & 1) == 1) {
+            int materialData = int(uvA.w);
+            if ((materialData >> MATERIAL_FLAG_IS_VANILLA_TEXTURED & 1) == 1) {
                 // Rotate the texture triangles to match model orientation
                 uvA = rotate(uvA, orientation);
                 uvB = rotate(uvB, orientation);
@@ -297,9 +313,9 @@ void sort_and_insert(uint localId, ModelInfo minfo, int thisPriority, int thisDi
         uvout[outOffset + myOffset * 3 + 2] = uvC;
 
         // Grab vertex normals from the correct buffer
-        vec4 normA = normal[offset + ssboOffset * 3    ];
-        vec4 normB = normal[offset + ssboOffset * 3 + 1];
-        vec4 normC = normal[offset + ssboOffset * 3 + 2];
+        vec4 normA = normal[offset + localId * 3    ];
+        vec4 normB = normal[offset + localId * 3 + 1];
+        vec4 normC = normal[offset + localId * 3 + 2];
 
         // Rotate normals to match model orientation
         normalout[outOffset + myOffset * 3]     = rotate(normA, orientation);

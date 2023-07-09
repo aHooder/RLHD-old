@@ -28,8 +28,8 @@ layout(std140) uniform MaterialUniforms {
 
 #include MATERIAL_GETTER
 
-bool getMaterialShouldOverrideBaseColor(const Material material) {
-    return (material.flags >> 2 & 1) == 1;
+int getMaterialShouldOverrideBaseColor(const Material material) {
+    return material.flags >> 2 & 1;
 }
 
 int getMaterialIsUnlit(const Material material) {

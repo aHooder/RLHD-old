@@ -38,6 +38,7 @@ out float gFogAmount;
 out int gMaterialData;
 out int gTerrainData;
 
+uniform int renderPass;
 uniform int useFog;
 uniform float fogDepth;
 uniform int drawDistance;

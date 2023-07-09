@@ -28,9 +28,10 @@
 
 struct ModelInfo {
     int offset;   // offset into buffer
-    int uvOffset; // offset into uv buffer
-    int size;     // length in faces
-    int idx;      // write idx in target buffer
+    int offsetUv; // offset into uv buffer
+    int faceCount;
+    int renderOffsetOpaque;      // write idx in target buffer
+    int renderOffsetTranslucent; // write idx in target buffer
     int flags;    // radius, orientation
     int x;        // scene position x
     int y;        // scene position y

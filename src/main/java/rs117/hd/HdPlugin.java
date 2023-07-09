@@ -150,7 +150,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private static final float NEAR_PLANE = 1;
 
-	private static final int[] eightIntWrite = new int[8];
+	private static final int[] modelInfoWrite = new int[9];
 
 	@Inject
 	private Client client;
@@ -309,7 +309,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private int dynamicOffsetVertices;
 	private int dynamicOffsetUvs;
-	private int renderBufferOffset;
+	private int vertexCountOpaque;
+	private int vertexCountTranslucent;
 
 	private int lastCanvasWidth;
 	private int lastCanvasHeight;
@@ -321,6 +322,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int viewportOffsetY;
 
 	// Uniforms
+	private int uniRenderPass;
 	private int uniColorBlindnessIntensity;
 	private int uniUiColorBlindnessIntensity;
 	private int uniUseFog;
@@ -425,7 +427,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (!textureManager.vanillaTexturesAvailable())
 					return false;
 
-				renderBufferOffset = 0;
+				vertexCountOpaque = vertexCountTranslucent = 0;
 				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				numPassthroughModels = 0;
@@ -788,6 +790,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void initUniforms() {
+		uniRenderPass = glGetUniformLocation(glSceneProgram, "renderPass");
 		uniProjectionMatrix = glGetUniformLocation(glSceneProgram, "projectionMatrix");
 		uniLightProjectionMatrix = glGetUniformLocation(glSceneProgram, "lightProjectionMatrix");
 		uniShadowMap = glGetUniformLocation(glSceneProgram, "shadowMap");
@@ -1336,7 +1339,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// after this that don't involve a scene draw, like during LOADING/HOPPING/CONNECTION_LOST, we can
 			// still redraw the previous frame's scene to emulate the client behavior of not painting over the
 			// viewport buffer.
-			renderBufferOffset = sceneContext.staticVertexCount;
+			vertexCountOpaque = sceneContext.staticVertexCount;
+			vertexCountTranslucent = 0;
 
 			// Push unordered models that should always be drawn at the start of each frame.
 			// Used to fix issues like the right-click menu causing underwater tiles to disappear.
@@ -1345,7 +1349,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				.ensureCapacity(staticUnordered.limit())
 				.put(staticUnordered);
 			staticUnordered.rewind();
-			numPassthroughModels += staticUnordered.limit() / 8;
+			numPassthroughModels += staticUnordered.limit() / 9;
 		}
 
 		sceneContext.cameraPosition[0] = cameraX;
@@ -1437,6 +1441,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// Technically we could skip compute shaders as well when the camera is unchanged,
 		// but it would only lead to micro stuttering when rotating the camera, compared to no rotation.
 		if (!redrawPreviousFrame) {
+			frameModelInfoMap.clear();
+
 			// Geometry buffers
 			sceneContext.stagingBufferVertices.flip();
 			sceneContext.stagingBufferUvs.flip();
@@ -1479,24 +1485,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 
 			// Output buffers
+			int totalVertexCount = vertexCountOpaque + vertexCountTranslucent;
 			updateBuffer(
 				hRenderBufferVertices,
 				GL_ARRAY_BUFFER,
-				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				totalVertexCount * 16L, // each vertex is an ivec4, which is 16 bytes
 				GL_STREAM_DRAW,
 				CL_MEM_WRITE_ONLY
 			);
 			updateBuffer(
 				hRenderBufferUvs,
 				GL_ARRAY_BUFFER,
-				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				totalVertexCount * 16L, // each vertex is an ivec4, which is 16 bytes
 				GL_STREAM_DRAW,
 				CL_MEM_WRITE_ONLY
 			);
 			updateBuffer(
 				hRenderBufferNormals,
 				GL_ARRAY_BUFFER,
-				renderBufferOffset * 16L, // each vertex is an ivec4, which is 16 bytes
+				totalVertexCount * 16L, // each vertex is an ivec4, which is 16 bytes
 				GL_STREAM_DRAW,
 				CL_MEM_WRITE_ONLY
 			);
@@ -1582,18 +1589,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		++numPassthroughModels;
 		modelPassthroughBuffer
-			.ensureCapacity(16)
+			.ensureCapacity(9)
 			.getBuffer()
 			.put(paint.getBufferOffset())
 			.put(paint.getUvBufferOffset())
 			.put(vertexCount / 3)
-			.put(renderBufferOffset)
+			.put(vertexCountOpaque)
+			.put(0)
 			.put(0)
 			.put(tileX * LOCAL_TILE_SIZE)
 			.put(0)
 			.put(tileY * LOCAL_TILE_SIZE);
 
-		renderBufferOffset += vertexCount;
+		vertexCountOpaque += vertexCount;
 	}
 
 	public void initShaderHotswapping() {
@@ -1624,7 +1632,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		final int localZ = tileY * LOCAL_TILE_SIZE;
 
 		GpuIntBuffer b = modelPassthroughBuffer;
-		b.ensureCapacity(16);
+		b.ensureCapacity(18);
 		IntBuffer buffer = b.getBuffer();
 
 		int bufferLength = model.getBufferLen();
@@ -1647,11 +1655,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			buffer.put(model.getBufferOffset() + bufferLength);
 			buffer.put(model.getUvBufferOffset() + bufferLength);
 			buffer.put(bufferLength / 3);
-			buffer.put(renderBufferOffset);
+			buffer.put(vertexCountOpaque);
+			buffer.put(0);
 			buffer.put(0);
 			buffer.put(localX).put(localY).put(localZ);
 
-			renderBufferOffset += bufferLength;
+			vertexCountOpaque += bufferLength;
 		}
 
 		++numPassthroughModels;
@@ -1659,11 +1668,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		buffer.put(model.getBufferOffset());
 		buffer.put(model.getUvBufferOffset());
 		buffer.put(bufferLength / 3);
-		buffer.put(renderBufferOffset);
+		buffer.put(vertexCountOpaque);
+		buffer.put(0);
 		buffer.put(0);
 		buffer.put(localX).put(localY).put(localZ);
 
-		renderBufferOffset += bufferLength;
+		vertexCountOpaque += bufferLength;
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -1747,9 +1757,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
-		if (renderBufferOffset > 0)
+		if (vertexCountOpaque + vertexCountTranslucent > 0)
 			hasLoggedIn = true;
 
+		// TODO: replace with uniform
 		int maxSize = (int) Math.min(
 			Math.min(
 				hRenderBufferVertices.size / (VERTEX_SIZE * 4),
@@ -1757,8 +1768,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			),
 			hRenderBufferNormals.size / (NORMAL_SIZE * 4)
 		);
-		int vertexCount = renderBufferOffset;
-		int vertexOffset = maxSize - 1 - vertexCount;
+		int vertexOffsetOpaque = maxSize - vertexCountOpaque - 1;
+		int vertexOffsetTranslucent = 0;
+		assert vertexCountOpaque + vertexCountTranslucent <= maxSize;
 
 		// Draw 3d scene
 		final TextureProvider textureProvider = client.getTextureProvider();
@@ -1854,12 +1866,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glEnable(GL_DEPTH_TEST);
 
 				// Draw with buffers bound to scene VAO
-				glDrawArrays(GL_TRIANGLES, vertexOffset, vertexCount);
+				glDrawArrays(GL_TRIANGLES, vertexOffsetOpaque, vertexCountOpaque);
+				glDrawArrays(GL_TRIANGLES, vertexOffsetTranslucent, vertexCountTranslucent);
 
 				glDisable(GL_CULL_FACE);
 				glDisable(GL_DEPTH_TEST);
-
-				glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
 				glUseProgram(0);
 
@@ -1913,6 +1924,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			} else {
 				glDisable(GL_MULTISAMPLE);
 				destroySceneFbo();
+
+				glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 			}
 
 			lastAntiAliasingMode = antiAliasingMode;
@@ -1921,7 +1934,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			// Clear scene
 			float[] fogColor = ColorUtils.linearToSrgb(environmentManager.currentFogColor);
-			glClearColor(fogColor[0], fogColor[1], fogColor[2], 1f);
+			float clearAlpha = 1; // Clear alpha to zero for special blending of translucent faces
+			glClearColor(fogColor[0], fogColor[1], fogColor[2], clearAlpha);
 			glClearDepthf(1);
 			glClearStencil(0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -2031,29 +2045,49 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glEnable(GL_CULL_FACE);
 			glCullFace(GL_BACK);
 
-			// Enable blending for alpha
-			glEnable(GL_BLEND);
-			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-
 			// Draw with buffers bound to scene VAO
 			glBindVertexArray(vaoSceneHandle);
 
+			glDisable(GL_BLEND);
+
+			// Draw all opaque triangles
+			glUniform1i(uniRenderPass, 0);
 			glEnable(GL_STENCIL_TEST);
 			glStencilMask(0xFF); // Mask to & with output. We're setting it to 0xFF just to ensure it's not removing any bits
 			glStencilFunc(GL_EQUAL, 0, 0xFF); // Only fragments with stencil value == 0 should pass
 			// If stencil test passes (regardless of depth test), increment counter, else keep current
 			// The idea is to increment it from 0 to 1 on the very first fragment, then never let another fragment through
 			glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+			// Write the first depth value into the depth buffer
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_ALWAYS);
+			glDepthMask(true);
+			glDrawArrays(GL_TRIANGLES, vertexOffsetOpaque, vertexCountOpaque);
 
-			// Draw with buffers bound to scene VAO
-			glDrawArrays(GL_TRIANGLES, vertexOffset, vertexCount);
-
+			// Draw all translucent triangles
+			glUniform1i(uniRenderPass, 1);
 			glDisable(GL_STENCIL_TEST);
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_LESS);
+			// Fix Z-fighting when a translucent face intersects an opaque face
+			glEnable(GL_POLYGON_OFFSET_FILL);
+			glPolygonOffset(-1, 1);
+			// Disable writing of depth values, to only test against opaque faces
+			glDepthMask(false);
+			// Enable alpha blending
+			glEnable(GL_BLEND);
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+			glDrawArrays(GL_TRIANGLES, vertexOffsetTranslucent, vertexCountTranslucent);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
-			glDisable(GL_BLEND);
+			// Reset state
 			glDisable(GL_CULL_FACE);
+			glDisable(GL_BLEND);
+			glDisable(GL_STENCIL_TEST);
+			glDisable(GL_DEPTH_TEST);
+			glDisable(GL_POLYGON_OFFSET_FILL);
+			glDepthMask(true);
 
 			glUseProgram(0);
 
@@ -2080,8 +2114,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// Reset
 				glBindFramebuffer(GL_READ_FRAMEBUFFER, awtContext.getFramebuffer(false));
 			}
-
-			frameModelInfoMap.clear();
 		} else {
 			glClearColor(0, 0, 0, 1f);
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -2104,8 +2136,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			log.error("Unable to swap buffers:", ex);
 		}
-
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
 		frameTimer.endFrameAndReset();
 
@@ -2216,7 +2246,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged gameStateChanged) {
 		if (gameStateChanged.getGameState() == GameState.LOGIN_SCREEN) {
-			renderBufferOffset = 0;
+			vertexCountOpaque = vertexCountTranslucent = 0;
 			hasLoggedIn = false;
 			environmentManager.reset();
 		}
@@ -2680,26 +2710,32 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (enableDetailedTimers)
 			frameTimer.begin(Timer.DRAW_RENDERABLE);
 
-		eightIntWrite[3] = renderBufferOffset;
-		eightIntWrite[4] = model.getRadius() << 12 | orientation;
-		eightIntWrite[5] = x + sceneContext.cameraPosition[0];
-		eightIntWrite[6] = y + sceneContext.cameraPosition[1];
-		eightIntWrite[7] = z + sceneContext.cameraPosition[2];
+		modelInfoWrite[3] = vertexCountOpaque; // used to compute offset
+		modelInfoWrite[4] = vertexCountTranslucent; // offset
+		modelInfoWrite[5] = model.getRadius() << 12 | orientation;
+		modelInfoWrite[6] = x + sceneContext.cameraPosition[0];
+		modelInfoWrite[7] = y + sceneContext.cameraPosition[1];
+		modelInfoWrite[8] = z + sceneContext.cameraPosition[2];
 
-		int faceCount;
+		int totalFaceCount;
+		int translucentFaceCount;
 		if (sceneContext.id == offsetModel.getSceneId()) {
 			assert model == renderable;
 
+			var modelOffsets = sceneContext.staticModels.get(model);
+			if (modelOffsets == null)
+				return;
+
 			// The model is part of the static scene buffer
-			faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
-			int uvOffset = offsetModel.getUvBufferOffset();
+			totalFaceCount = modelOffsets.totalFaceCount;
 			int plane = (int) ((hash >> 49) & 3);
 			boolean hillskew = offsetModel != model;
 
-			eightIntWrite[0] = offsetModel.getBufferOffset();
-			eightIntWrite[1] = uvOffset;
-			eightIntWrite[2] = faceCount;
-			eightIntWrite[4] |= (hillskew ? 1 : 0) << 26 | plane << 24;
+			translucentFaceCount = modelOffsets.translucentFaceCount;
+			modelInfoWrite[0] = modelOffsets.vertexOffset;
+			modelInfoWrite[1] = modelOffsets.uvOffset;
+			modelInfoWrite[2] = totalFaceCount;
+			modelInfoWrite[5] |= (hillskew ? 1 : 0) << 26 | plane << 24;
 		} else {
 			// Temporary model (animated or otherwise not a static Model already in the scene buffer)
 			if (enableDetailedTimers)
@@ -2716,11 +2752,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			if (enableDetailedTimers)
 				frameTimer.end(Timer.MODEL_BATCHING);
 
-			if (modelOffsets != null && modelOffsets.faceCount == model.getFaceCount()) {
-				faceCount = modelOffsets.faceCount;
-				eightIntWrite[0] = modelOffsets.vertexOffset;
-				eightIntWrite[1] = modelOffsets.uvOffset;
-				eightIntWrite[2] = modelOffsets.faceCount;
+			if (modelOffsets != null && modelOffsets.totalFaceCount == model.getFaceCount()) {
+				totalFaceCount = modelOffsets.totalFaceCount;
+				translucentFaceCount = modelOffsets.translucentFaceCount;
+				modelInfoWrite[0] = modelOffsets.vertexOffset;
+				modelInfoWrite[1] = modelOffsets.uvOffset;
+				modelInfoWrite[2] = modelOffsets.totalFaceCount;
 			} else {
 				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
@@ -2731,21 +2768,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					frameTimer.end(Timer.MODEL_PUSHING);
 				if (sceneContext.modelPusherResults[1] == 0)
 					uvOffset = -1;
-				faceCount = sceneContext.modelPusherResults[0];
-				eightIntWrite[0] = vertexOffset;
-				eightIntWrite[1] = uvOffset;
-				eightIntWrite[2] = faceCount;
+
+				totalFaceCount = sceneContext.modelPusherResults[0];
+				translucentFaceCount = sceneContext.modelPusherResults[2];
+				modelInfoWrite[0] = vertexOffset;
+				modelInfoWrite[1] = uvOffset;
+				modelInfoWrite[2] = totalFaceCount;
 
 				// add this temporary model to the map for batching purposes
 				if (configModelBatching)
-					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset));
+					frameModelInfoMap.put(batchHash, new ModelOffsets(vertexOffset, uvOffset, sceneContext.modelPusherResults));
 			}
 		}
 
-		bufferForTriangles(faceCount)
-			.ensureCapacity(8)
-			.put(eightIntWrite);
-		renderBufferOffset += faceCount * 3;
+		bufferForTriangles(totalFaceCount)
+			.ensureCapacity(9)
+			.put(modelInfoWrite);
+		vertexCountOpaque += (totalFaceCount - translucentFaceCount) * 3;
+		vertexCountTranslucent += translucentFaceCount * 3;
 
 		if (enableDetailedTimers)
 			frameTimer.end(Timer.DRAW_RENDERABLE);
