@@ -54,10 +54,10 @@ void main() {
 
     vec2 tiledist = abs(floor(position.xz / 128) - floor(vec2(cameraX, cameraZ) / 128));
     float maxDist = max(tiledist.x, tiledist.y);
-    if (maxDist * 128 > drawDistance) {
+    if (maxDist * 128 > drawDistance && maxDist < 1000) {
         // Rapidly fade out any geometry that extends beyond the draw distance.
         // This is required since we always draw all underwater terrain.
-        alpha *= -256;
+        alpha = -256;
     }
 
     vec4 color = vec4(srgbToLinear(rgb), alpha);

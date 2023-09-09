@@ -72,6 +72,58 @@ class SceneUploader
 	public void upload(SceneContext sceneContext) {
 		Stopwatch stopwatch = Stopwatch.createStarted();
 
+		{
+			sceneContext.staticUnorderedModelBuffer
+				.ensureCapacity(8)
+				.getBuffer()
+				.put(sceneContext.getVertexOffset())
+				.put(sceneContext.getUvOffset())
+				.put(2) // 2 faces
+				.put(sceneContext.staticVertexCount)
+				.put(0)
+				.put((Constants.SCENE_SIZE / 2) * LOCAL_TILE_SIZE)
+				.put(0)
+				.put((Constants.SCENE_SIZE / 2) * LOCAL_TILE_SIZE);
+			sceneContext.staticVertexCount += 6;
+
+			int terrainData = packTerrainData(true, 0, WaterType.NONE, 0);
+
+			sceneContext.stagingBufferNormals.ensureCapacity(24);
+			for (int i = 0; i < 6; i++)
+				sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
+
+			int color = 2;
+			int scale = 1 << 25;
+			int localSwVertexX = -scale;
+			int localSwVertexY = -scale;
+			int localSeVertexY = -scale;
+			int localNwVertexX = -scale;
+			int localSeVertexX = scale;
+			int localNwVertexY = scale;
+			int localNeVertexX = scale;
+			int localNeVertexY = scale;
+
+			sceneContext.stagingBufferVertices.ensureCapacity(24);
+			sceneContext.stagingBufferVertices.put(localNeVertexX, 0, localNeVertexY, color);
+			sceneContext.stagingBufferVertices.put(localNwVertexX, 0, localNwVertexY, color);
+			sceneContext.stagingBufferVertices.put(localSeVertexX, 0, localSeVertexY, color);
+
+			sceneContext.stagingBufferVertices.put(localSwVertexX, 0, localSwVertexY, color);
+			sceneContext.stagingBufferVertices.put(localSeVertexX, 0, localSeVertexY, color);
+			sceneContext.stagingBufferVertices.put(localNwVertexX, 0, localNwVertexY, color);
+
+			int packedMaterialData = modelPusher.packMaterialData(Material.NONE, ModelOverride.NONE, UvType.GEOMETRY, false);
+
+			sceneContext.stagingBufferUvs.ensureCapacity(24);
+			sceneContext.stagingBufferUvs.put(0, 0, 0, packedMaterialData);
+			sceneContext.stagingBufferUvs.put(1, 0, 0, packedMaterialData);
+			sceneContext.stagingBufferUvs.put(0, 1, 0, packedMaterialData);
+
+			sceneContext.stagingBufferUvs.put(1, 1, 0, packedMaterialData);
+			sceneContext.stagingBufferUvs.put(0, 1, 0, packedMaterialData);
+			sceneContext.stagingBufferUvs.put(1, 0, 0, packedMaterialData);
+		}
+
 		for (int z = 0; z < Constants.MAX_Z; ++z) {
 			for (int x = 0; x < Constants.SCENE_SIZE; ++x) {
 				for (int y = 0; y < Constants.SCENE_SIZE; ++y) {
@@ -296,8 +348,7 @@ class SceneUploader
 			}
 
 			Renderable renderable2 = decorativeObject.getRenderable2();
-			if (renderable2 instanceof Model)
-			{
+			if (renderable2 instanceof Model) {
 				uploadModel(sceneContext, tile, decorativeObject.getHash(), (Model) renderable2,
 					HDUtils.getBakedOrientation(decorativeObject.getConfig()),
 					ObjectType.DECORATIVE_OBJECT
@@ -306,16 +357,17 @@ class SceneUploader
 		}
 
 		GameObject[] gameObjects = tile.getGameObjects();
-		for (GameObject gameObject : gameObjects)
-		{
-			if (gameObject == null)
-			{
+		for (GameObject gameObject : gameObjects) {
+			if (gameObject == null) {
 				continue;
 			}
 
 			Renderable renderable = gameObject.getRenderable();
-			if (renderable instanceof Model)
-			{
+			if (renderable instanceof Model) {
+				if (gameObject.getId() == 26493) {
+					int[] colors = ((Model) gameObject.getRenderable()).getFaceColors1();
+					log.debug("tile");
+				}
 				uploadModel(sceneContext, tile, gameObject.getHash(), (Model) gameObject.getRenderable(),
 					HDUtils.getBakedOrientation(gameObject.getConfig()), ObjectType.GAME_OBJECT
 				);

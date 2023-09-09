@@ -271,8 +271,7 @@ public class ResourcePath {
 	 * @return A runnable that can be called to unregister the watch callback
 	 */
 	public FileWatcher.UnregisterCallback watch(BiConsumer<ResourcePath, Boolean> changeHandler) {
-		// Only watch files on the file system
-		if (!isFileSystemResource() || RESOURCE_PATH == null) {
+		if (RESOURCE_PATH == null) {
 			changeHandler.accept(this, true);
 			return NOOP;
 		}
@@ -544,10 +543,10 @@ public class ResourcePath {
 
         @Override
         public InputStream toInputStream() throws IOException {
-            assert path != null;
+			assert path != null;
 
-            // Attempt to load resource from project resource folder if it's on the file system
-			if (RESOURCE_PATH != null && isFileSystemResource()) {
+			// Attempt to load resource from project resource folder
+			if (RESOURCE_PATH != null) {
 				ResourcePath path = null;
 				try {
 					path = RESOURCE_PATH.chroot().resolve(toAbsolute().toPath().toString());
@@ -621,23 +620,23 @@ public class ResourcePath {
 
         @Override
         public InputStream toInputStream() throws IOException {
-            assert path != null;
+			assert path != null;
 
-            // Attempt to load resource from project resource folder if it's not located in a jar
-            if (RESOURCE_PATH != null && isFileSystemResource()) {
-                ResourcePath path = null;
-                try {
-                    path = RESOURCE_PATH.chroot().resolve(toAbsolute().toPath().toString());
-                    return path.toInputStream();
-                } catch (Exception ex) {
-                    log.warn("Failed to load resource from project resource folder: {}", path, ex);
-                }
-            }
+			// Attempt to load resource from project resource folder
+			if (RESOURCE_PATH != null) {
+				ResourcePath path = null;
+				try {
+					path = RESOURCE_PATH.chroot().resolve(toAbsolute().toPath().toString());
+					return path.toInputStream();
+				} catch (Exception ex) {
+					log.warn("Failed to load resource from project resource folder: {}", path, ex);
+				}
+			}
 
-            InputStream is = root.getResourceAsStream(path);
-            if (is == null)
-                throw new IOException("Missing resource: " + this);
-            return is;
-        }
+			InputStream is = root.getResourceAsStream(path);
+			if (is == null)
+				throw new IOException("Missing resource: " + this);
+			return is;
+		}
     }
 }

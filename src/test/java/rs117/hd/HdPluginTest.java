@@ -15,10 +15,10 @@ import static rs117.hd.utils.ResourcePath.path;
 @Slf4j
 public class HdPluginTest
 {
-	public static void main(String[] args) throws Exception
-	{
+	public static void main(String[] args) throws Exception {
 		Props.DEVELOPMENT = true;
 		ResourcePath.RESOURCE_PATH = path("src/main/resources");
+		ClassLoader.getSystemClassLoader().setDefaultAssertionStatus(true);
 		useLatestPluginHub();
 		ExternalPluginManager.loadBuiltin(HdPlugin.class);
 		RuneLite.main(args);
