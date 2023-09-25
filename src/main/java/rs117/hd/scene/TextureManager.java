@@ -28,10 +28,12 @@ import java.awt.geom.AffineTransform;
 import java.awt.image.AffineTransformOp;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.IOException;
 import java.nio.IntBuffer;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.HashSet;
+import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -52,12 +54,14 @@ import static rs117.hd.utils.ResourcePath.path;
 
 @Singleton
 @Slf4j
-public class TextureManager
-{
+public class TextureManager {
 	private static final String[] SUPPORTED_IMAGE_EXTENSIONS = { "png", "jpg" };
 	private static final float HALF_PI = (float) (Math.PI / 2);
-	private static final ResourcePath TEXTURE_PATH = Props.getPathOrDefault("rlhd.texture-path",
-		() -> path(TextureManager.class,"textures"));
+	private static final ResourcePath TEXTURE_PATH = Props.getPathOrDefault(
+		"rlhd.texture-path",
+		() -> path(TextureManager.class, "textures")
+	);
+	private static final boolean EXPORT_VANILLA_TEXTURES = Props.getBooleanOrDefault("rlhd.export-vanilla-textures", false);
 
 	@Inject
 	private HdPlugin plugin;
@@ -182,21 +186,22 @@ public class TextureManager
 
 		float[] textureAnimations = new float[textureCount * 2];
 
+		ResourcePath vanillaTextureExportPath = null;
+//		if (EXPORT_VANILLA_TEXTURES)
+		vanillaTextureExportPath = path("exports/vanilla-textures").mkdirs();
+
 		// Load vanilla textures to texture array layers
 		ArrayDeque<Integer> unusedIndices = new ArrayDeque<>();
 		int i = 0;
-		for (; i < textures.length; i++)
-		{
+		for (; i < textures.length; i++) {
 			Texture texture = textures[i];
-			if (texture == null)
-			{
+			if (texture == null) {
 				unusedIndices.addLast(i);
 				continue;
 			}
 
 			Material material = Material.getTexture(i);
-			if (material.parent != null)
-			{
+			if (material.parent != null) {
 				// Point this material to pre-existing texture from parent material
 				materialOrdinalToTextureIndex[material.ordinal()] = materialOrdinalToTextureIndex[material.parent.ordinal()];
 				continue;
@@ -235,6 +240,14 @@ public class TextureManager
 
 				vanillaImage.setRGB(0, 0, resolution, resolution, vanillaPixels, 0, resolution);
 				image = vanillaImage;
+
+				if (vanillaTextureExportPath != null) {
+					try {
+						ImageIO.write(vanillaImage, "png", vanillaTextureExportPath.resolve(textureName + ".png").toFile());
+					} catch (IOException ex) {
+						log.error("Unable to export vanilla texture index {}:", i, ex);
+					}
+				}
 			}
 
 			uploadTexture(i, image);
