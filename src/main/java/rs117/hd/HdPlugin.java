@@ -401,10 +401,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private boolean lwjglInitialized;
 	private boolean hasLoggedIn;
-	private boolean enableDrawRenderableTimers;
 	private boolean redrawPreviousFrame;
 	private Scene skipScene;
 
+	public boolean enableDetailedTimers;
 	public boolean useLowMemoryMode;
 	public boolean isInChambersOfXeric;
 
@@ -503,7 +503,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				if (developerMode) {
 					developerTools.activate();
-					enableDrawRenderableTimers = true;
+					enableDetailedTimers = true;
 				}
 
 				modelPassthroughBuffer = new GpuIntBuffer();
@@ -2679,7 +2679,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (sceneContext == null)
 			return;
 
-		if (enableDrawRenderableTimers)
+		if (enableDetailedTimers)
 			frameTimer.begin(Timer.GET_MODEL);
 
 		Model model, offsetModel;
@@ -2703,7 +2703,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// Vanilla happens to handle exceptions thrown here gracefully, but we handle them explicitly anyway
 			return;
 		} finally {
-			if (enableDrawRenderableTimers)
+			if (enableDetailedTimers)
 				frameTimer.end(Timer.GET_MODEL);
 		}
 
@@ -2719,7 +2719,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (redrawPreviousFrame || modelOverrideManager.shouldHideModel(hash, x, z))
 			return;
 
-		if (enableDrawRenderableTimers)
+		if (enableDetailedTimers)
 			frameTimer.begin(Timer.DRAW_RENDERABLE);
 
 		eightIntWrite[3] = renderBufferOffset;
@@ -2744,7 +2744,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			eightIntWrite[4] |= (hillskew ? 1 : 0) << 26 | plane << 24;
 		} else {
 			// Temporary model (animated or otherwise not a static Model already in the scene buffer)
-			if (enableDrawRenderableTimers)
+			if (enableDetailedTimers)
 				frameTimer.begin(Timer.MODEL_BATCHING);
 			ModelOffsets modelOffsets = null;
 			long batchHash = 0;
@@ -2755,7 +2755,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					modelOffsets = frameModelInfoMap.get(batchHash);
 				}
 			}
-			if (enableDrawRenderableTimers)
+			if (enableDetailedTimers)
 				frameTimer.end(Timer.MODEL_BATCHING);
 
 			if (modelOffsets != null && modelOffsets.faceCount == model.getFaceCount()) {
@@ -2766,10 +2766,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			} else {
 				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
-				if (enableDrawRenderableTimers)
+				if (enableDetailedTimers)
 					frameTimer.begin(Timer.MODEL_PUSHING);
 				modelPusher.pushModel(sceneContext, null, hash, model, ObjectType.NONE, 0, true);
-				if (enableDrawRenderableTimers)
+				if (enableDetailedTimers)
 					frameTimer.end(Timer.MODEL_PUSHING);
 				if (sceneContext.modelPusherResults[1] == 0)
 					uvOffset = -1;
@@ -2789,7 +2789,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			.put(eightIntWrite);
 		renderBufferOffset += faceCount * 3;
 
-		if (enableDrawRenderableTimers)
+		if (enableDetailedTimers)
 			frameTimer.end(Timer.DRAW_RENDERABLE);
 	}
 

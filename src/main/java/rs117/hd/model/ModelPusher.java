@@ -20,6 +20,8 @@ import rs117.hd.data.materials.Material;
 import rs117.hd.data.materials.Overlay;
 import rs117.hd.data.materials.Underlay;
 import rs117.hd.data.materials.UvType;
+import rs117.hd.overlays.FrameTimer;
+import rs117.hd.overlays.Timer;
 import rs117.hd.scene.ModelOverrideManager;
 import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.SceneContext;
@@ -58,6 +60,9 @@ public class ModelPusher {
 
 	@Inject
 	private ModelOverrideManager modelOverrideManager;
+
+	@Inject
+	private FrameTimer frameTimer;
 
 	public static final int DATUM_PER_FACE = 12;
 	public static final int MAX_MATERIAL_COUNT = (1 << 10) - 1;
@@ -288,6 +293,8 @@ public class ModelPusher {
 			}
 		}
 
+		if (plugin.enableDetailedTimers)
+			frameTimer.begin(Timer.MODEL_PUSHING_VERTEX);
 		for (int face = 0; face < faceCount; face++) {
 			if (!foundCachedVertexData) {
 				getFaceVertices(sceneContext, tile, hash, model, modelOverride, objectType, face);
@@ -297,7 +304,13 @@ public class ModelPusher {
 					fullVertexData.put(sceneContext.modelFaceVertices);
 				}
 			}
+		}
+		if (plugin.enableDetailedTimers)
+			frameTimer.end(Timer.MODEL_PUSHING_VERTEX);
 
+		if (plugin.enableDetailedTimers)
+			frameTimer.begin(Timer.MODEL_PUSHING_NORMAL);
+		for (int face = 0; face < faceCount; face++) {
 			if (!foundCachedNormalData) {
 				getNormalDataForFace(sceneContext, model, modelOverride, face);
 				sceneContext.stagingBufferNormals.put(sceneContext.modelFaceNormals);
@@ -306,7 +319,13 @@ public class ModelPusher {
 					fullNormalData.put(sceneContext.modelFaceNormals);
 				}
 			}
+		}
+		if (plugin.enableDetailedTimers)
+			frameTimer.end(Timer.MODEL_PUSHING_NORMAL);
 
+		if (plugin.enableDetailedTimers)
+			frameTimer.begin(Timer.MODEL_PUSHING_UV);
+		for (int face = 0; face < faceCount; face++) {
 			if (!foundCachedUvData) {
 				Material material = baseMaterial;
 				short textureId = isVanillaTextured ? faceTextures[face] : -1;
@@ -336,6 +355,8 @@ public class ModelPusher {
 				++texturedFaceCount;
 			}
 		}
+		if (plugin.enableDetailedTimers)
+			frameTimer.end(Timer.MODEL_PUSHING_UV);
 
 		if (shouldCacheVertexData) {
 			fullVertexData.flip();
@@ -411,7 +432,22 @@ public class ModelPusher {
 			(faceTransparencies[face] & 0xFF) > 100;
 	}
 
-	private void getFaceVertices(SceneContext sceneContext, Tile tile, long hash, Model model, @NonNull ModelOverride modelOverride, ObjectType objectType, int face) {
+	static int[] MAX_BRIGHTNESS_LOOKUP_TABLE = new int[128];
+
+	static {
+		for (int i = 0; i < 128; i++)
+			MAX_BRIGHTNESS_LOOKUP_TABLE[i] = (int) (127 - 72 * Math.pow(i / 7f, .05));
+	}
+
+	private void getFaceVertices(
+		SceneContext sceneContext,
+		Tile tile,
+		long hash,
+		Model model,
+		@NonNull ModelOverride modelOverride,
+		ObjectType objectType,
+		int face
+	) {
 		final Scene scene = sceneContext.scene;
 		final int triA = model.getFaceIndices1()[face];
 		final int triB = model.getFaceIndices2()[face];
@@ -546,11 +582,6 @@ public class ModelPusher {
 		int maxBrightness1 = 55;
 		int maxBrightness2 = 55;
 		int maxBrightness3 = 55;
-		if (!plugin.configLegacyGreyColors) {
-			maxBrightness1 = (int) HDUtils.lerp(127, maxBrightness1, (float) Math.pow((float) color1S / 0x7, .05));
-			maxBrightness2 = (int) HDUtils.lerp(127, maxBrightness2, (float) Math.pow((float) color2S / 0x7, .05));
-			maxBrightness3 = (int) HDUtils.lerp(127, maxBrightness3, (float) Math.pow((float) color3S / 0x7, .05));
-		}
 		if (faceTextures != null && faceTextures[face] != -1) {
 			// Without overriding the color for textured faces, vanilla shading remains pretty noticeable even after
 			// the approximate reversal above. Ardougne rooftops is a good example, where vanilla shading results in a
@@ -559,6 +590,10 @@ public class ModelPusher {
 			color1S = color2S = color3S = 0;
 			color1L = color2L = color3L = 127;
 			maxBrightness1 = maxBrightness2 = maxBrightness3 = 90;
+		} else if (!plugin.configLegacyGreyColors) {
+			maxBrightness1 = MAX_BRIGHTNESS_LOOKUP_TABLE[color1S];
+			maxBrightness2 = MAX_BRIGHTNESS_LOOKUP_TABLE[color2S];
+			maxBrightness3 = MAX_BRIGHTNESS_LOOKUP_TABLE[color3S];
 		}
 
 		if (tile != null && modelOverride.inheritTileColorType != InheritTileColorType.NONE) {
