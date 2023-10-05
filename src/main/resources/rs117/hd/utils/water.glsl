@@ -88,6 +88,26 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
         vec4 pos = PointLightArray[i].position;
         vec3 lightToFrag = pos.xyz - IN.position;
         float distanceSquared = dot(lightToFrag, lightToFrag);
+
+        #if ACCURATE_LIGHT_ATTENUATION
+        const float CUTOFF_BEGIN = .2;
+        const float CUTOFF_END = .3;
+        float strength = pos.w;
+        if (strength > CUTOFF_BEGIN * distanceSquared) {
+            vec3 pointLightColor = PointLightArray[i].color;
+            vec3 pointLightDir = normalize(lightToFrag);
+
+            float attenuation = strength / distanceSquared;
+            attenuation *= smoothstep(CUTOFF_BEGIN, CUTOFF_END, attenuation);
+            pointLightColor *= attenuation;
+
+            float pointLightDotNormals = max(dot(normals, pointLightDir), 0);
+            pointLightsOut += pointLightColor * pointLightDotNormals;
+
+            vec3 pointLightReflectDir = reflect(-pointLightDir, normals);
+            pointLightsSpecularOut += pointLightColor * specular(viewDir, pointLightReflectDir, vSpecularGloss, vSpecularStrength);
+        }
+        #else
         float radiusSquared = pos.w;
         if (distanceSquared <= radiusSquared) {
             vec3 pointLightColor = PointLightArray[i].color;
@@ -102,6 +122,7 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
             vec3 pointLightReflectDir = reflect(-pointLightDir, normals);
             pointLightsSpecularOut += pointLightColor * specular(viewDir, pointLightReflectDir, vSpecularGloss, vSpecularStrength);
         }
+        #endif
     }
 
 

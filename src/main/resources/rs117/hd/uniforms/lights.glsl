@@ -1,6 +1,7 @@
 #pragma once
 
 #include LIGHT_COUNT
+#include ACCURATE_LIGHT_ATTENUATION
 
 struct PointLight
 {
